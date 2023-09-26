@@ -20,11 +20,7 @@
     oca_server
     opam-core
     opam-format
-    obuilder-spec
-    ocluster-api
-    capnp-rpc
-    capnp-rpc-lwt
-    capnp-rpc-unix
+    dockerfile
     ; conduit-lwt-unix ; TODO: Remove this. Not required explicitly but uncomment if you use (implicit_transitive_deps false)
     ; result ; TODO: Remove this. Not required explicitly but uncomment if you use (implicit_transitive_deps false)
     github

@@ -169,14 +169,14 @@ module Make (Backend : Backend_intf.S) = struct
       ~mode:(`TCP (`Port port))
       (Cohttp_lwt_unix.Server.make ~callback ())
 
-  let main ~debug ~cap_file ~workdir =
+  let main ~debug ~workdir =
     Printexc.record_backtrace debug;
     let%lwt cwd = Lwt_unix.getcwd () in
     let workdir = Server_workdirs.create ~cwd ~workdir in
     let%lwt () = Server_workdirs.init_base workdir in
     let conf = Server_configfile.from_workdir workdir in
     let port = Server_configfile.port conf in
-    let%lwt (backend, backend_task) = Backend.start ~debug ~cap_file conf workdir in
+    let%lwt (backend, backend_task) = Backend.start ~debug conf workdir in
     Lwt.join [
       tcp_server port (callback ~debug ~conf backend);
       backend_task ();

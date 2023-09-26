@@ -1,12 +1,11 @@
 opam-version: "2.0"
 version: "0.1~"
 license: "MIT"
-maintainer: ["Kate <kit.ty.kate@disroot.org>" "Tim McGilchrist <timmcgil@gmail.com>"]
-authors: "Kate <kit.ty.kate@disroot.org>"
-homepage: "https://github.com/ocurrent/opam-health-check"
-dev-repo: "git://github.com/ocurrent/opam-health-check.git"
-bug-reports: "https://github.com/ocurrent/opam-health-check/issues"
-tags: ["opam" "check"]
+maintainer: "Kate <kit-ty-kate@outlook.com>"
+authors: "Kate <kit-ty-kate@outlook.com>"
+homepage: "https://github.com/kit-ty-kate/opam-health-check"
+dev-repo: "git://github.com/kit-ty-kate/opam-health-check.git"
+bug-reports: "https://github.com/kit-ty-kate/opam-health-check/issues"
 build: ["dune" "build" "-p" name "-j" jobs]
 depends: [
   "ocaml" {>= "4.10.0"}
@@ -31,17 +30,13 @@ depends: [
   "sexplib" {>= "v0.9.0"}
   "sexplib0" {>= "v0.9.0"}
   "xdg-basedir" {>= "0.0.4"}
-  "obuilder-spec" {>= "0.5"}
-  "ocluster-api" {>= "0.1"}
+  "dockerfile" {>= "8.2.0"}
   "current_ansi" {>= "0.1"}
   "yojson" {>= "1.6.0"}
   "github"
   "github-unix"
   "github-data"
   "cstruct"
-  "capnp-rpc" {>= "1.2"}
-  "capnp-rpc-lwt" {>= "1.2"}
-  "capnp-rpc-unix" {>= "1.2"}
   "lwt"
   "lwt_ppx"
   "uri"
