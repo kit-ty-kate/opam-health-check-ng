@@ -31,17 +31,12 @@ depends: [
   "sexplib" {>= "v0.9.0"}
   "sexplib0" {>= "v0.9.0"}
   "xdg-basedir" {>= "0.0.4"}
-  "obuilder-spec" {>= "0.5"}
-  "ocluster-api" {>= "0.1"}
   "current_ansi" {>= "0.1"}
   "yojson" {>= "1.6.0"}
   "github"
   "github-unix"
   "github-data"
   "cstruct"
-  "capnp-rpc" {>= "1.2"}
-  "capnp-rpc-lwt" {>= "1.2"}
-  "capnp-rpc-unix" {>= "1.2"}
   "lwt"
   "lwt_ppx"
   "uri"

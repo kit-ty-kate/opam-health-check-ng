@@ -1,6 +1,6 @@
 module Server = Oca_server.Server.Make (Backend)
 
-let main debug workdir cap_file = Lwt_main.run (Server.main ~debug ~cap_file ~workdir)
+let main debug workdir = Lwt_main.run (Server.main ~debug ~workdir)
 
 (* Command-line parsing *)
 
@@ -16,15 +16,7 @@ let debug = Arg.value & Arg.flag & Arg.info ["debug"]
 let workdir =
   Arg.required & Arg.pos 0 (Arg.some Arg.string) None & Arg.info ~docv:"WORKDIR" []
 
-let connect_addr =
-  Arg.required &
-  Arg.opt (Arg.some Arg.file) None &
-  Arg.info
-    ~doc:"Path of ocluster.cap from ocluster-admin"
-    ~docv:"ADDR"
-    ["c"; "connect"]
-
-let term = Term.const main $ debug $ workdir $ connect_addr
+let term = Term.const main $ debug $ workdir
 
 let info =
   Cmd.info
