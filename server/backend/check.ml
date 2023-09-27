@@ -21,10 +21,28 @@ let cache ~conf =
 
 let network = ["host"]
 
-let obuilder_to_string spec =
-  Sexplib0.Sexp.to_string_mach (Obuilder_spec.sexp_of_t spec)
+let docker_to_string spec =
+  (* TODO: change when Windows support *)
+  Obuilder_spec.Docker.dockerfile_of_spec ~buildkit:true ~os:`Unix spec
 
-let ocluster_build ~conf ~base_obuilder ~stdout ~stderr c =
+let docker_build ~conf ~cached ~stderr ~img_name dockerfile =
+  let stdin, fd = Lwt_unix.pipe () in
+  let stdin = `FD_move stdin in
+  Lwt_unix.set_close_on_exec fd;
+  let label = get_prefix conf in
+  begin
+    if not cached then
+      Oca_lib.exec ~stdin:`Close ~stdout:stderr ~stderr ["docker";"system";"prune";"-af";"--volumes";("--filter=label="^label)]
+    else
+      Lwt.return_unit
+  end >>= fun () ->
+  let proc = Oca_lib.exec ~stdin ~stdout:stderr ~stderr (["docker";"build";"-"]) in
+  Oca_lib.write_line_unix fd (Format.sprintf "%a" Dockerfile.pp dockerfile) >>= fun () ->
+  Lwt_unix.close fd >>= fun () ->
+  proc
+
+
+let docker_build ~conf ~base_obuilder ~stdout ~stderr c =
   let obuilder_content =
     let {Obuilder_spec.child_builds; from; ops} = base_obuilder in
     Obuilder_spec.stage
@@ -32,13 +50,9 @@ let ocluster_build ~conf ~base_obuilder ~stdout ~stderr c =
       ~from
       (ops @ [Obuilder_spec.run ~cache:(cache ~conf) ~network "%s" c])
   in
-  let obuilder_content = obuilder_to_string obuilder_content in
-  Capnp_rpc_lwt.Capability.with_ref service @@ fun submission_service ->
-  let action = Cluster_api.Submission.obuilder_build obuilder_content in
+  let obuilder_content = docker_to_string obuilder_content in
   let cache_hint = "opam-health-check-"^Digest.to_hex (Digest.string obuilder_content) in
   let pool = Server_configfile.platform_pool conf in
-  Capnp_rpc_lwt.Capability.with_ref (Cluster_api.Submission.submit submission_service ~urgent:false ~pool ~action ~cache_hint) @@ fun ticket ->
-  Capnp_rpc_lwt.Capability.with_ref (Cluster_api.Ticket.job ticket) @@ fun job ->
   match%lwt Capnp_rpc_lwt.Capability.await_settled job with
   | Ok () ->
       let proc =
@@ -553,6 +567,7 @@ let run ~debug ~on_finished ~conf cache workdir =
         let%lwt () = update_docker_image conf in
         let%lwt (opam_repo, opam_repo_commit) = get_commit_hash_default conf in
         let%lwt extra_repos = get_commit_hash_extra_repos conf in
+        let%lwt () = Oca_lib.exec ~stdin:`Close ~stdout:stderr ~stderr ["docker";"system";"prune";"-af"] in
         let switches' = switches in
         let switches = List.map (fun switch -> (switch, get_obuilder ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch)) switches in
         begin match switches with

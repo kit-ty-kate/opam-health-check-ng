@@ -49,6 +49,24 @@ let rec scan_dir ~full_path dirname =
 
 let scan_dir dirname = scan_dir ~full_path:dirname (Fpath.v ".")
 
+let exec ~stdin ~stdout ~stderr cmd =
+  let stdout = `FD_copy stdout in
+  let stderr = `FD_copy stderr in
+  (* TODO: maybe to factorize with pread below *)
+  Lwt_process.with_process_none ~stdin ~stdout ~stderr ("", Array.of_list cmd) (fun proc ->
+    match%lwt proc#close with
+    | Unix.WEXITED 0 ->
+        Lwt.return_unit
+    | Unix.WEXITED n ->
+        let cmd = String.concat " " cmd in
+        prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^".");
+        Lwt.fail (Failure "process failure")
+    | Unix.WSIGNALED n | Unix.WSTOPPED n ->
+        let cmd = String.concat " " cmd in
+        prerr_endline ("Command '"^cmd^"' killed by a signal (n°"^string_of_int n^")");
+        Lwt.fail (Failure "process failure")
+  )
+
 let pread ?cwd ?exit1 ~timeout cmd f =
   Lwt_process.with_process_in ?cwd ~timeout ~stdin:`Close ("", Array.of_list cmd) begin fun proc ->
     let%lwt res = f proc#stdout in

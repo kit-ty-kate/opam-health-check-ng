@@ -3,6 +3,13 @@ val list_map_cube : ('a -> 'a -> 'b) -> 'a list -> 'b list
 val is_valid_filename : string -> bool
 val char_is_docker_compatible : char -> bool
 
+val exec :
+  stdin:Lwt_process.redirection ->
+  stdout:Lwt_io.output Lwt_io.channel ->
+  stderr:Lwt_io.output Lwt_io.channel ->
+  string list ->
+  unit Lwt.t
+
 val get_files : Fpath.t -> string list Lwt.t
 val scan_dir : Fpath.t -> string list Lwt.t
 val scan_tpxz_archive : Fpath.t -> string list Lwt.t
