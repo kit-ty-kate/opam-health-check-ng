@@ -49,6 +49,13 @@ let rec scan_dir ~full_path dirname =
 
 let scan_dir dirname = scan_dir ~full_path:dirname (Fpath.v ".")
 
+let write fd str =
+  Lwt_unix.write_string fd str 0 (String.length str)
+
+let write_line fd str =
+  let str = str^"\n" in
+  Lwt_unix.write_string fd str 0 (String.length str)
+
 let exec ~stdin ~stdout ~stderr cmd =
   let stdout = `FD_copy stdout in
   let stderr = `FD_copy stderr in

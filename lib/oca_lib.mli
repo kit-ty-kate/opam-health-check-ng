@@ -3,6 +3,9 @@ val list_map_cube : ('a -> 'a -> 'b) -> 'a list -> 'b list
 val is_valid_filename : string -> bool
 val char_is_docker_compatible : char -> bool
 
+val write : Lwt_unix.file_descr -> string -> unit Lwt.t
+val write_line : Lwt_unix.file_descr -> string -> unit Lwt.t
+
 val exec :
   stdin:Lwt_process.redirection ->
   stdout:Lwt_io.output Lwt_io.channel ->

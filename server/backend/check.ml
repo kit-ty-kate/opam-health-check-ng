@@ -58,10 +58,10 @@ let docker_build ~conf ~base_obuilder ~stdout ~stderr c =
       let proc =
         let rec tail job start =
           match%lwt Cluster_api.Job.log job start with
-          | Error (`Capnp e) -> Lwt_io.write stderr (Fmt.str "Error tailing logs: %a" Capnp_rpc.Error.pp e)
+          | Error (`Capnp e) -> Oca_lib.write stderr (Fmt.str "Error tailing logs: %a" Capnp_rpc.Error.pp e)
           | Ok ("", _) -> Lwt.return_unit
           | Ok (data, next) ->
-              let%lwt () = Lwt_io.write stdout data in
+              let%lwt () = Oca_lib.write stdout data in
               tail job next
         in
         let%lwt () = tail job 0L in
@@ -69,7 +69,7 @@ let docker_build ~conf ~base_obuilder ~stdout ~stderr c =
         | Ok _ ->
             Lwt.return (Ok ())
         | Error (`Capnp e) ->
-            let%lwt () = Lwt_io.write stdout (Fmt.str "%a" Capnp_rpc.Error.pp e) in
+            let%lwt () = Oca_lib.write stdout (Fmt.str "%a" Capnp_rpc.Error.pp e) in
             Lwt.return (Error ())
       in
       let timeout =
@@ -77,32 +77,32 @@ let docker_build ~conf ~base_obuilder ~stdout ~stderr c =
         let%lwt () = Lwt_unix.sleep (hours *. 60.0 *. 60.0) in
         let cancel =
           let%lwt cancel_result = Cluster_api.Job.cancel job in
-          let%lwt () = Lwt_io.write_line stdout ("+++ Timeout!! ("^string_of_float hours^" hours) +++") in
+          let%lwt () = Oca_lib.write_line stdout ("+++ Timeout!! ("^string_of_float hours^" hours) +++") in
           match cancel_result with
           | Ok () ->
-              Lwt_io.write_line stdout "+++ Job cancelled +++"
+              Oca_lib.write_line stdout "+++ Job cancelled +++"
           | Error (`Capnp err) ->
-              Lwt_io.write_line stdout (Fmt.str "+++ Could not cancel job: %a +++" Capnp_rpc.Error.pp err)
+              Oca_lib.write_line stdout (Fmt.str "+++ Could not cancel job: %a +++" Capnp_rpc.Error.pp err)
         in
         let timeout =
           let minute = 1 in
           let%lwt () = Lwt_unix.sleep (float_of_int (minute * 60)) in
-          Lwt_io.write_line stdout "+++ Cancellation failed +++"
+          Oca_lib.write_line stdout "+++ Cancellation failed +++"
         in
         let%lwt () = Lwt.pick [cancel; timeout] in
-        let%lwt () = Lwt_io.write_line stderr ("Command '"^c^"' timed-out ("^string_of_float hours^" hours).") in
+        let%lwt () = Oca_lib.write_line stderr ("Command '"^c^"' timed-out ("^string_of_float hours^" hours).") in
         Lwt.return (Error ())
       in
       Lwt.pick [timeout; proc]
   | Error {Capnp_rpc.Exception.reason; _} ->
-      let%lwt () = Lwt_io.write_line stderr ("capnp-rpc failed to settle: "^reason) in
+      let%lwt () = Oca_lib.write_line stderr ("capnp-rpc failed to settle: "^reason) in
       Lwt.return (Error ())
 
 let exec_out ~fexec ~fout =
-  let stdin, stdout = Lwt_io.pipe () in
-  let proc = (fexec ~stdout) [%lwt.finally Lwt_io.close stdout] in
+  let stdin, stdout = Lwt_unix.pipe () in
+  let proc = (fexec ~stdout) [%lwt.finally Lwt_unix.close stdout] in
   let%lwt res = fout ~stdin in
-  let%lwt () = Lwt_io.close stdin in
+  let%lwt () = Lwt_unix.close stdin in
   let%lwt r = proc in
   Lwt.return (r, res)
 
@@ -585,19 +585,18 @@ let run ~debug ~on_finished ~conf cache workdir =
             let (_, jobs) = get_metadata ~debug ~jobs ~conf ~pool ~stderr new_logdir switch pkgs in
             let%lwt () = Lwt.join jobs in
             let%lwt () = Oca_lib.timer_log timer stderr "Operation" in
-            let%lwt () = Lwt_io.write_line stderr "Finishing up…" in
+            let%lwt () = Oca_lib.write_line stderr "Finishing up…" in
             let%lwt () = move_tmpdirs_to_final ~switches:switches' new_logdir workdir in
             let%lwt () = on_finished workdir in
             let%lwt () = trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf in
             Oca_lib.timer_log timer stderr "Clean up"
         | [] ->
-            Lwt_io.write_line stderr "No switches."
+            Oca_lib.write_line stderr "No switches."
         end
       with
       | exc ->
-          let%lwt () = Lwt_io.write_line stderr ("Exception: "^Printexc.to_string exc^".") in
-          let%lwt () = Lwt_io.write stderr (Printexc.get_backtrace ()) in
-          let%lwt () = Lwt_io.flush stderr in
+          let%lwt () = Oca_lib.write_line stderr ("Exception: "^Printexc.to_string exc^".") in
+          let%lwt () = Oca_lib.write stderr (Printexc.get_backtrace ()) in
           Lwt.return (prerr_endline "The current run failed unexpectedly. Please check the latest log using: opam-health-check log")
     end
   end (fun () -> run_locked := false; Lwt.return_unit) end;
