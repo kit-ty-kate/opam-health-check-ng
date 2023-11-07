@@ -21,14 +21,14 @@ let cache ~conf =
 
 let network = `Default
 
-let docker_build ~base_dockerfile ~stdout ~stderr c =
+let docker_build ~conf ~base_dockerfile ~stdout ~stderr c =
   let stdin, fd = Lwt_unix.pipe () in
   let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
   Lwt_unix.set_close_on_exec fd;
   let proc = Oca_lib.exec ~stdin ~stdout ~stderr (["docker";"build";"-"]) in
   let dockerfile =
     let ( @@ ) = Dockerfile.( @@ ) in
-    base_dockerfile @@ Dockerfile.run "%s" c
+    base_dockerfile @@ Dockerfile.run ~mounts:(cache ~conf) ~network "%s" c
   in
   let%lwt () = Oca_lib.write_line fd (Format.sprintf "%a" Dockerfile.pp dockerfile) in
   let%lwt () = Lwt_unix.close fd in
@@ -42,7 +42,7 @@ let exec_out ~fexec ~fout =
   let%lwt r = proc in
   Lwt.return (r, res)
 
-let docker_build_str ~important ~debug ~base_dockerfile ~stderr ~default c =
+let docker_build_str ~important ~debug ~conf ~base_dockerfile ~stderr ~default c =
   let rec aux ~stdin =
     let%lwt line = Oca_lib.read_line_opt stdin in
     match line with
@@ -64,7 +64,7 @@ let docker_build_str ~important ~debug ~base_dockerfile ~stderr ~default c =
   in
   match%lwt
     exec_out ~fout:aux ~fexec:(fun ~stdout ->
-      docker_build ~base_dockerfile ~stdout ~stderr ("echo @@@OUTPUT && "^c^" && echo @@@OUTPUT")
+      docker_build ~conf ~base_dockerfile ~stdout ~stderr ("echo @@@OUTPUT && "^c^" && echo @@@OUTPUT")
     )
   with
   | (Ok (), r) ->
@@ -151,7 +151,7 @@ let run_job ~conf ~pool ~stderr ~base_dockerfile ~switch ~num logdir pkg =
     let logfile = Server_workdirs.tmplogfile ~pkg ~switch logdir in
     match%lwt
       Oca_lib.with_file Unix.[O_WRONLY; O_CREAT; O_TRUNC] 0o640 (Fpath.to_string logfile) (fun stdout ->
-        docker_build ~base_dockerfile ~stdout ~stderr (run_script ~conf pkg)
+        docker_build ~conf ~base_dockerfile ~stdout ~stderr (run_script ~conf pkg)
       )
     with
     | Ok () ->
@@ -268,7 +268,7 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
 let get_pkgs ~debug ~conf ~stderr (switch, base_dockerfile) =
   let switch = Intf.Compiler.to_string (Intf.Switch.name switch) in
   let%lwt () = Oca_lib.write_line stderr ("Getting packages list for "^switch^"… (this may take an hour or two)") in
-  let%lwt pkgs = docker_build_str ~important:true ~debug ~base_dockerfile ~stderr ~default:None (Server_configfile.list_command conf) in
+  let%lwt pkgs = docker_build_str ~important:true ~debug ~conf ~base_dockerfile ~stderr ~default:None (Server_configfile.list_command conf) in
   let pkgs = List.filter begin fun pkg ->
     Oca_lib.is_valid_filename pkg &&
     match Intf.Pkg.name (Intf.Pkg.create ~full_name:pkg ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) with (* TODO: Remove this horror *)
@@ -311,9 +311,9 @@ let revdeps_script pkg =
   {|opam list --color=never -s --recursive --depopts --depends-on |}^pkg^{| && \
     opam list --color=never -s --with-test --with-doc --depopts --depends-on |}^pkg
 
-let get_metadata ~debug ~jobs ~pool ~stderr logdir (_, base_dockerfile) pkgs =
+let get_metadata ~debug ~conf ~jobs ~pool ~stderr logdir (_, base_dockerfile) pkgs =
   let get_revdeps ~base_dockerfile ~pkgname ~pkg ~logdir =
-    let%lwt revdeps = docker_build_str ~important:false ~debug ~base_dockerfile ~stderr ~default:(Some []) (revdeps_script pkg) in
+    let%lwt revdeps = docker_build_str ~important:false ~debug ~conf ~base_dockerfile ~stderr ~default:(Some []) (revdeps_script pkg) in
     let module Set = Set.Make(String) in
     let revdeps = Set.of_list revdeps in
     let revdeps = Set.remove pkgname revdeps in (* https://github.com/ocaml/opam/issues/4446 *)
@@ -323,7 +323,7 @@ let get_metadata ~debug ~jobs ~pool ~stderr logdir (_, base_dockerfile) pkgs =
   in
   let get_latest_metadata ~base_dockerfile ~pkgname ~logdir = (* TODO: Get this locally by merging all the repository and parsing the opam files using opam-core *)
     let%lwt opam =
-      docker_build_str ~important:false ~debug ~base_dockerfile ~stderr ~default:(Some [])
+      docker_build_str ~important:false ~debug ~conf ~base_dockerfile ~stderr ~default:(Some [])
         ("opam show --raw "^Filename.quote pkgname)
     in
     Lwt_io.with_file ~mode:Lwt_io.output (Fpath.to_string (Server_workdirs.tmpopamfile ~pkg:pkgname logdir)) (fun c ->
@@ -524,7 +524,7 @@ let run ~debug ~on_finished ~conf cache workdir =
             let pkgs = Pkg_set.of_list (List.concat pkgs) in
             let%lwt () = Oca_lib.timer_log timer stderr "Initialization" in
             let (_, jobs) = run_jobs ~conf ~pool ~stderr new_logdir switches pkgs in
-            let (_, jobs) = get_metadata ~debug ~jobs ~pool ~stderr new_logdir switch pkgs in
+            let (_, jobs) = get_metadata ~debug ~conf ~jobs ~pool ~stderr new_logdir switch pkgs in
             let%lwt () = Lwt.join jobs in
             let%lwt () = Oca_lib.timer_log timer stderr "Operation" in
             let%lwt () = Oca_lib.write_line stderr "Finishing up…" in
