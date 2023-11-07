@@ -214,6 +214,7 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
     | os -> failwith ("OS '"^os^"' not supported")
   in
   from img @@
+  buildkit_syntax @@
   user "opam" @@
   env [
     "OPAMPRECISETRACKING", "1"; (* NOTE: See https://github.com/ocaml/opam/issues/3997 *)
