@@ -28,7 +28,7 @@ let docker_build ~conf ~base_dockerfile ~stdout ~stderr c =
   let proc = Oca_lib.exec ~stdin ~stdout ~stderr (["docker";"build";"-"]) in
   let dockerfile =
     let ( @@ ) = Dockerfile.( @@ ) in
-    base_dockerfile @@ Dockerfile.run ~mounts:(cache ~conf) ~network "%s" c
+    base_dockerfile @@ Dockerfile.run ~mounts:(cache ~conf) ~network ~security:`Insecure "%s" c
   in
   let%lwt () = Oca_lib.write_line fd (Format.sprintf "%a" Dockerfile.pp dockerfile) in
   let%lwt () = Lwt_unix.close fd in
@@ -223,7 +223,7 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
   ] @@
   run "%s" ln_opam @@
   run ~network "rm -rf ~/opam-repository && git clone -q '%s' ~/opam-repository && git -C ~/opam-repository checkout -q %s" (Intf.Github.url opam_repo) opam_repo_commit @@
-  run "rm -rf ~/.opam && opam init -ya --bare%s ~/opam-repository" opam_init_options @@@
+  run ~security:`Insecure "rm -rf ~/.opam && opam init -ya --bare%s ~/opam-repository" opam_init_options @@@
   List.flatten (
     List.map (fun (repo, hash) ->
       let name = Filename.quote (Intf.Repository.name repo) in
@@ -233,7 +233,7 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
       ]
     ) extra_repos
   ) @ [
-    run ~cache ~network "opam switch create --repositories=%sdefault '%s' '%s'"
+    run ~cache ~network ~security:`Insecure "opam switch create --repositories=%sdefault '%s' '%s'"
       (List.fold_left (fun acc (repo, _) -> Intf.Repository.name repo^","^acc) "" extra_repos)
       (Intf.Compiler.to_string (Intf.Switch.name switch))
       (Intf.Switch.switch switch);
@@ -241,18 +241,18 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
   ] @
   (* TODO: Should this be removed now that it is part of the base docker images? What about macOS? *)
   (if OpamVersionCompare.compare (Intf.Switch.switch switch) "4.08" < 0 then
-     [run ~cache ~network "opam install -y ocaml-secondary-compiler"]
+     [run ~cache ~network ~security:`Insecure "opam install -y ocaml-secondary-compiler"]
      (* NOTE: See https://github.com/ocaml/opam-repository/pull/15404
         and https://github.com/ocaml/opam-repository/pull/15642 *)
    else
      []
   ) @
   (match Server_configfile.extra_command conf with
-   | Some c -> [run ~cache ~network "%s" c]
+   | Some c -> [run ~cache ~network ~security:`Insecure "%s" c]
    | None -> []
   ) @
   (if Server_configfile.enable_dune_cache conf then
-     [ run ~cache ~network "opam pin add -k version dune $(opam show -f version dune)";
+     [ run ~cache ~network ~security:`Insecure "opam pin add -k version dune $(opam show -f version dune)";
        env [
          "DUNE_CACHE", "enabled";
          "DUNE_CACHE_TRANSPORT", "direct";
