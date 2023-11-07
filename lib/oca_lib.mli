@@ -3,15 +3,24 @@ val list_map_cube : ('a -> 'a -> 'b) -> 'a list -> 'b list
 val is_valid_filename : string -> bool
 val char_is_docker_compatible : char -> bool
 
+val read_line_opt : Lwt_unix.file_descr -> string option Lwt.t
+
 val write : Lwt_unix.file_descr -> string -> unit Lwt.t
 val write_line : Lwt_unix.file_descr -> string -> unit Lwt.t
 
+val with_file :
+  Lwt_unix.open_flag list ->
+  Lwt_unix.file_perm ->
+  string ->
+  (Lwt_unix.file_descr -> 'a Lwt.t) ->
+  'a Lwt.t
+
 val exec :
   stdin:Lwt_process.redirection ->
-  stdout:Lwt_io.output Lwt_io.channel ->
-  stderr:Lwt_io.output Lwt_io.channel ->
+  stdout:Lwt_unix.file_descr ->
+  stderr:Lwt_unix.file_descr ->
   string list ->
-  unit Lwt.t
+  (unit, unit) result Lwt.t
 
 val get_files : Fpath.t -> string list Lwt.t
 val scan_dir : Fpath.t -> string list Lwt.t
@@ -26,7 +35,7 @@ val rm_rf : Fpath.t -> unit Lwt.t
 type timer
 
 val timer_start : unit -> timer
-val timer_log : timer -> Lwt_io.output_channel -> string -> unit Lwt.t
+val timer_log : timer -> Lwt_unix.file_descr -> string -> unit Lwt.t
 
 val protocol_version : string
 val default_server_name : string
