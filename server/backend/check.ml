@@ -213,8 +213,8 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
     | "macos" -> ""
     | os -> failwith ("OS '"^os^"' not supported")
   in
-  from img @@
   comment "syntax=docker/dockerfile:1-labs" @@ (* NOTE: https://github.com/moby/buildkit/blob/master/frontend/dockerfile/docs/reference.md#run---security *)
+  from img @@
   user "opam" @@
   env [
     "OPAMPRECISETRACKING", "1"; (* NOTE: See https://github.com/ocaml/opam/issues/3997 *)
