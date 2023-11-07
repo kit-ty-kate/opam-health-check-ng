@@ -504,11 +504,12 @@ let run ~debug ~on_finished ~conf cache workdir =
         let%lwt () = update_docker_image conf in
         let%lwt (opam_repo, opam_repo_commit) = get_commit_hash_default conf in
         let%lwt extra_repos = get_commit_hash_extra_repos conf in
-        let%lwt () =
+        (* TODO *)
+(*        let%lwt () =
           match%lwt Oca_lib.exec ~stdin:`Close ~stdout:stderr ~stderr ["docker";"system";"prune";"-af"] with
           | Ok () -> Lwt.return_unit
           | Error () -> Lwt.fail (Failure "docker prune failed")
-        in
+          in *)
         let switches' = switches in
         let switches = List.map (fun switch -> (switch, get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch)) switches in
         begin match switches with
