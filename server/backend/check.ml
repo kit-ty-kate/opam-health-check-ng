@@ -25,7 +25,7 @@ let docker_build ~conf ~base_dockerfile ~stdout ~stderr c =
   let stdin, fd = Lwt_unix.pipe () in
   let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
   Lwt_unix.set_close_on_exec fd;
-  let proc = Oca_lib.exec ~stdin ~stdout ~stderr (["docker";"build";"-"]) in
+  let proc = Oca_lib.exec ~stdin ~stdout ~stderr (["docker";"build";"--allow";"security.insecure";"-"]) in
   let dockerfile =
     let ( @@ ) = Dockerfile.( @@ ) in
     base_dockerfile @@ Dockerfile.run ~mounts:(cache ~conf) ~network ~security:`Insecure "%s" c
