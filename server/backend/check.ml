@@ -1,9 +1,13 @@
 let fmt = Printf.sprintf
 
+(* UID/GID of the user "opam" in the ocaml/opam images *)
+let uid = 1000
+let gid = 1000
+
 let cache ~conf =
   let os = Server_configfile.platform_os conf in
   let opam_cache = match os with
-    | "linux" -> Some (Dockerfile.mount_cache ~id:"opam-archives" ~target:"/home/opam/.opam/download-cache" ())
+    | "linux" -> Some (Dockerfile.mount_cache ~id:"opam-archives" ~target:"/home/opam/.opam/download-cache" ~uid ~gid ())
     | "freebsd" -> Some (Dockerfile.mount_cache ~id:"opam-archives" ~target:"/usr/home/opam/.opam/download-cache" ())
     | "macos" -> Some (Dockerfile.mount_cache ~id:"opam-archives" ~target:"/Users/mac1000/.opam/download-cache" ())
     | os -> failwith ("Opam cache not supported on '" ^ os) (* TODO: Should other platforms simply take the same ocurrent/opam: prefix? *)
@@ -14,7 +18,7 @@ let cache ~conf =
   in
   let dune_cache =
     if Server_configfile.enable_dune_cache conf
-    then Some (Dockerfile.mount_cache ~id:"opam-dune-cache" ~target:"/home/opam/.cache/dune" ())
+    then Some (Dockerfile.mount_cache ~id:"opam-dune-cache" ~target:"/home/opam/.cache/dune" ~uid ~gid ())
     else None
   in
   List.filter_map (fun x -> x) [opam_cache; brew_cache; dune_cache]
@@ -208,7 +212,7 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
     | os -> failwith ("OS '"^os^"' not supported")
   in
   from img @@
-  user "opam" @@
+  user "%d:%d" uid gid @@
   env [
     "OPAMPRECISETRACKING", "1"; (* NOTE: See https://github.com/ocaml/opam/issues/3997 *)
     "OPAMUTF8", "never"; (* Disable UTF-8 characters so that output stay consistant accross platforms *)
