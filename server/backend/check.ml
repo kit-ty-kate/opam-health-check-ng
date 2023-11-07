@@ -101,7 +101,7 @@ let failure_kind conf ~pkg logfile =
 let with_test pkg = {|
 if [ $res = 0 ]; then
     opam remove -y "|}^pkg^{|"
-    opam install -vty "|}^pkg^{|"
+    opam install -j1 -vty "|}^pkg^{|"
     res=$?
     if [ $res = 20 ]; then
         res=0
@@ -118,7 +118,7 @@ let with_test ~conf pkg =
 let with_lower_bound pkg = {|
 if [ $res = 0 ]; then
     opam remove -y "|}^pkg^{|"
-    env OPAMCRITERIA="+removed,+count[version-lag,solution]" opam install -vy "|}^pkg^{|"
+    env OPAMCRITERIA="+removed,+count[version-lag,solution]" opam install -j1 -vy "|}^pkg^{|"
     res=$?
 fi
 |}
@@ -131,7 +131,7 @@ let with_lower_bound ~conf pkg =
 
 let run_script ~conf pkg = {|
 opam remove -y "|}^pkg^{|"
-opam install -vy "|}^pkg^{|"
+opam install -j1 -vy "|}^pkg^{|"
 res=$?
 if [ $res = 31 ]; then
     if opam show -f x-ci-accept-failures: "|}^pkg^{|" | grep -q '"|}^Server_configfile.platform_distribution conf^{|"'; then
