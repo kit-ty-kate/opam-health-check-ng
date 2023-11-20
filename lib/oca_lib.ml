@@ -54,18 +54,15 @@ let read_line_opt fd =
   let tmp_buf = Bytes.create 1 in
   let rec aux () =
     match%lwt Lwt_unix.read fd tmp_buf 0 1 with
-    | 0 -> Lwt.return_unit
+    | 0 -> Lwt.return None
     | 1 ->
         begin match Bytes.get tmp_buf 0 with
-        | '\n' -> Lwt.return_unit
+        | '\n' -> Lwt.return (Some (Buffer.contents buffer))
         | c -> Buffer.add_char buffer c; aux ()
         end
     | _ -> assert false
   in
-  let%lwt () = aux () in
-  match Buffer.length buffer with
-  | 0 -> Lwt.return None
-  | _ -> Lwt.return (Some (Buffer.contents buffer))
+  aux ()
 
 let write fd str =
   let rec aux idx len =
