@@ -46,20 +46,29 @@ let exec_out ~fexec ~fout =
   let%lwt r = proc in
   Lwt.return (r, res)
 
-let read_build_result_line stdin =
-  let%lwt line = Oca_lib.read_line_opt stdin in
-  Lwt.return (Option.map (fun x -> (x, String.split_on_char ' ' x)) line)
+let read_line_docker_build stdin =
+  match%lwt Oca_lib.read_line_opt stdin with
+  | None -> Lwt.return_none
+  | Some line ->
+      let content =
+        let ( >>= ) = Option.bind in
+        String.index_from_opt line 0 ' ' >>= fun i1 ->
+        String.index_from_opt line (i1 + 1) ' ' >>= fun i2 ->
+        let index = i2 + 1 in
+        Some (String.sub line index (String.length line - index))
+      in
+      Lwt.return (Some (line, content))
 
 let docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default c =
   let rec aux ~stdin =
     (* TODO: Use --progress=rawjson whenever it's available *)
-    match%lwt read_build_result_line stdin with
-    | Some (_, [_; _; "@@@OUTPUT"]) ->
+    match%lwt read_line_docker_build stdin with
+    | Some (_, Some "@@@OUTPUT") ->
         let rec aux acc =
-          match%lwt read_build_result_line stdin with
-          | Some (_, [_; _; "@@@OUTPUT"]) -> Lwt.return (List.rev acc)
-          | Some (_, [_; _; x]) -> aux (x :: acc)
-          | Some (line, _) -> Lwt.fail (Failure (fmt "Error: unexpected docker build output format: %s" line))
+          match%lwt read_line_docker_build stdin with
+          | Some (_, Some "@@@OUTPUT") -> Lwt.return (List.rev acc)
+          | Some (_, Some x) -> aux (x :: acc)
+          | Some (line, None) -> Lwt.fail (Failure (fmt "Error: unexpected docker build output format: %s" line))
           | None -> Lwt.fail (Failure "Error: Closing @@@OUTPUT could not be detected")
         in
         aux []
