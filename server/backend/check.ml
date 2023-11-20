@@ -25,11 +25,11 @@ let cache ~conf =
 
 let network = `Default
 
-let docker_build ~conf ~base_dockerfile ~stdout ~stderr c =
+let docker_build ~conf ~base_dockerfile ~stdout c =
   let stdin, fd = Lwt_unix.pipe () in
   let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
   Lwt_unix.set_close_on_exec fd;
-  let proc = Oca_lib.exec ~stdin ~stdout ~stderr (["docker";"buildx";"build";"--progress=plain";"-"]) in
+  let proc = Oca_lib.exec ~stdin ~stdout ~stderr:stdout (["docker";"buildx";"build";"--progress=plain";"-"]) in
   let dockerfile =
     let ( @@ ) = Dockerfile.( @@ ) in
     base_dockerfile @@ Dockerfile.run ~mounts:(cache ~conf) ~network "%s" c
@@ -79,7 +79,7 @@ let docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default c =
   in
   match%lwt
     exec_out ~fout:aux ~fexec:(fun ~stdout ->
-      docker_build ~conf ~base_dockerfile ~stdout ~stderr ("echo @@@OUTPUT && "^c^" && echo @@@OUTPUT")
+      docker_build ~conf ~base_dockerfile ~stdout ("echo @@@OUTPUT && "^c^" && echo @@@OUTPUT")
     )
   with
   | (Ok (), r) ->
@@ -166,7 +166,7 @@ let run_job ~conf ~pool ~stderr ~base_dockerfile ~switch ~num logdir pkg =
     let logfile = Server_workdirs.tmplogfile ~pkg ~switch logdir in
     match%lwt
       Oca_lib.with_file Unix.[O_WRONLY; O_CREAT; O_TRUNC] 0o640 (Fpath.to_string logfile) (fun stdout ->
-        docker_build ~conf ~base_dockerfile ~stdout ~stderr (run_script ~conf pkg)
+        docker_build ~conf ~base_dockerfile ~stdout (run_script ~conf pkg)
       )
     with
     | Ok () ->
