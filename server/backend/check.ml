@@ -79,7 +79,7 @@ let docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default c =
   in
   match%lwt
     exec_out ~fout:aux ~fexec:(fun ~stdout ->
-      docker_build ~conf ~base_dockerfile ~stdout ("echo @@@OUTPUT && "^c^" && echo @@@OUTPUT")
+      docker_build ~conf ~base_dockerfile ~stdout (fmt "echo '%f' > /dev/null && echo @@@OUTPUT && %s && echo @@@OUTPUT" (Unix.time ()) c)
     )
   with
   | (Ok (), r) ->
