@@ -93,7 +93,7 @@ let exec ~stdin ~stdout ~stderr cmd =
         Lwt.return (Ok ())
     | Unix.WEXITED n ->
         let cmd = String.concat " " cmd in
-        prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^".");
+        prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^")");
         Lwt.return (Error ())
     | Unix.WSIGNALED n | Unix.WSTOPPED n ->
         let cmd = String.concat " " cmd in
@@ -113,7 +113,7 @@ let pread ?cwd ?exit1 ~timeout cmd f =
             Lwt.return default_val
         | _, _ ->
             let cmd = String.concat " " cmd in
-            prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^".");
+            prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^")");
             Lwt.fail (Failure "process failure")
         end
     | Unix.WSIGNALED n | Unix.WSTOPPED n ->
