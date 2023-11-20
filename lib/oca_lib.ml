@@ -77,8 +77,7 @@ let write fd str =
   aux 0 (String.length str)
 
 let write_line fd str =
-  let%lwt () = write fd str in
-  write fd "\n"
+  write fd (str^"\n")
 
 let with_file flags mode filename f =
   let%lwt fd = Lwt_unix.openfile filename flags mode in
