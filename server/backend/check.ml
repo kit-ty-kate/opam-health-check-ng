@@ -46,22 +46,33 @@ let exec_out ~fexec ~fout =
   let%lwt r = proc in
   Lwt.return (r, res)
 
-let docker_build_str ~important ~debug ~conf ~base_dockerfile ~stderr ~default c =
+let read_line_docker_build stdin =
+  match%lwt Oca_lib.read_line_opt stdin with
+  | None -> Lwt.return_none
+  | Some line ->
+      let content =
+        let ( >>= ) = Option.bind in
+        String.index_from_opt line 0 ' ' >>= fun i1 ->
+        String.index_from_opt line (i1 + 1) ' ' >>= fun i2 ->
+        let index = i2 + 1 in
+        Some (String.sub line index (String.length line - index))
+      in
+      Lwt.return (Some (line, content))
+
+let docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default c =
   let rec aux ~stdin =
-    let%lwt line = Oca_lib.read_line_opt stdin in
-    match line with
-    | Some "@@@OUTPUT" ->
+    (* TODO: Use --progress=rawjson whenever it's available *)
+    match%lwt read_line_docker_build stdin with
+    | Some (_, Some "@@@OUTPUT") ->
         let rec aux acc =
-          match%lwt Oca_lib.read_line_opt stdin with
-          | Some "@@@OUTPUT" -> Lwt.return (List.rev acc)
-          | Some x -> aux (x :: acc)
-          | None when important -> Lwt.fail (Failure "Error: Closing @@@OUTPUT could not be detected")
-          | None ->
-              let%lwt () = Oca_lib.write_line stderr "Error: Closing @@@OUTPUT could not be detected" in
-              Lwt.return_nil
+          match%lwt read_line_docker_build stdin with
+          | Some (_, Some "@@@OUTPUT") -> Lwt.return (List.rev acc)
+          | Some (_, Some x) -> aux (x :: acc)
+          | Some (line, None) -> Lwt.fail (Failure (fmt "Error: unexpected docker build output format: %s" line))
+          | None -> Lwt.fail (Failure "Error: Closing @@@OUTPUT could not be detected")
         in
         aux []
-    | Some line ->
+    | Some (line, _) ->
         let%lwt () = (if debug then Oca_lib.write_line stderr line else Lwt.return_unit) in
         aux ~stdin
     | None -> Lwt.return_nil
@@ -266,7 +277,7 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
 let get_pkgs ~debug ~conf ~stderr (switch, base_dockerfile) =
   let switch = Intf.Compiler.to_string (Intf.Switch.name switch) in
   let%lwt () = Oca_lib.write_line stderr ("Getting packages list for "^switch^"… (this may take an hour or two)") in
-  let%lwt pkgs = docker_build_str ~important:true ~debug ~conf ~base_dockerfile ~stderr ~default:None (Server_configfile.list_command conf) in
+  let%lwt pkgs = docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:None (Server_configfile.list_command conf) in
   let pkgs = List.filter begin fun pkg ->
     Oca_lib.is_valid_filename pkg &&
     match Intf.Pkg.name (Intf.Pkg.create ~full_name:pkg ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) with (* TODO: Remove this horror *)
@@ -311,7 +322,7 @@ let revdeps_script pkg =
 
 let get_metadata ~debug ~conf ~jobs ~pool ~stderr logdir (_, base_dockerfile) pkgs =
   let get_revdeps ~base_dockerfile ~pkgname ~pkg ~logdir =
-    let%lwt revdeps = docker_build_str ~important:false ~debug ~conf ~base_dockerfile ~stderr ~default:(Some []) (revdeps_script pkg) in
+    let%lwt revdeps = docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:(Some []) (revdeps_script pkg) in
     let module Set = Set.Make(String) in
     let revdeps = Set.of_list revdeps in
     let revdeps = Set.remove pkgname revdeps in (* https://github.com/ocaml/opam/issues/4446 *)
@@ -321,7 +332,7 @@ let get_metadata ~debug ~conf ~jobs ~pool ~stderr logdir (_, base_dockerfile) pk
   in
   let get_latest_metadata ~base_dockerfile ~pkgname ~logdir = (* TODO: Get this locally by merging all the repository and parsing the opam files using opam-core *)
     let%lwt opam =
-      docker_build_str ~important:false ~debug ~conf ~base_dockerfile ~stderr ~default:(Some [])
+      docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:(Some [])
         ("opam show --raw "^Filename.quote pkgname)
     in
     Lwt_io.with_file ~mode:Lwt_io.output (Fpath.to_string (Server_workdirs.tmpopamfile ~pkg:pkgname logdir)) (fun c ->
