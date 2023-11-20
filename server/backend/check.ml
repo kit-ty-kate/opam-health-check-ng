@@ -4,6 +4,13 @@ let fmt = Printf.sprintf
 let uid = 1000
 let gid = 1000
 
+module Dockerfile = struct
+  include Dockerfile
+
+  let run ?cache ?(network=`None) fmt =
+    Printf.ksprintf (fun cmd -> run ?mounts:cache ~network "<<EOT\n%s\nEOT" cmd) fmt
+end
+
 let cache ~conf =
   let os = Server_configfile.platform_os conf in
   let opam_cache = match os with
@@ -32,7 +39,7 @@ let docker_build ~conf ~base_dockerfile ~stdout c =
   let proc = Oca_lib.exec ~stdin ~stdout ~stderr:stdout (["docker";"buildx";"build";"--progress=plain";"-"]) in
   let dockerfile =
     let ( @@ ) = Dockerfile.( @@ ) in
-    base_dockerfile @@ Dockerfile.run ~mounts:(cache ~conf) ~network "%s" c
+    base_dockerfile @@ Dockerfile.run ~cache:(cache ~conf) ~network "%s" c
   in
   let%lwt () = Oca_lib.write_line fd (Format.sprintf "%a" Dockerfile.pp dockerfile) in
   let%lwt () = Lwt_unix.close fd in
@@ -206,7 +213,6 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
     ) extra_repos
   in
   let open! Dockerfile in
-  let run ?cache ?(network=`None) = run ?mounts:cache ~network in
   let cache = cache ~conf in
   let os = Server_configfile.platform_os conf in
   let distribution = Server_configfile.platform_distribution conf in
