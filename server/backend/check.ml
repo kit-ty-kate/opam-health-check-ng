@@ -38,6 +38,8 @@ let get_build_counter =
     r := Int64.succ !r;
     !r
 
+let docker_prune_mutex = Lwt_mutex.create ()
+
 let docker_build ~keep ~conf ~base_dockerfile ~stdout c =
   let label_or_tag =
     fmt "opam-health-check-%s-%Ld" (Server_configfile.name conf) (get_build_counter ())
@@ -57,7 +59,8 @@ let docker_build ~keep ~conf ~base_dockerfile ~stdout c =
     if keep then
       Lwt.return_unit
     else
-      let%lwt _ = Oca_lib.exec ~stdin ~stdout ~stderr:stdout ["docker";"system";"prune";"--force";"--filter";"label="^label_or_tag] in
+      Lwt_mutex.with_lock docker_prune_mutex @@ fun () ->
+      let%lwt _ = Oca_lib.exec ~stdin:`Close ~stdout ~stderr:stdout ["docker";"system";"prune";"--force";"--filter";"label="^label_or_tag] in
       Lwt.return_unit
   in
   Lwt.return proc
