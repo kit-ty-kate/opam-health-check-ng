@@ -133,7 +133,7 @@ let scan_tpxz_archive archive =
 let random_access_tpxz_archive ~file archive =
   let file = Filename.quote file in
   let archive = Filename.quote (Fpath.to_string archive) in
-  pread ~timeout:60. ["sh"; "-c"; "pixz -x "^file^" -i "^archive^" | tar -xO"] (Lwt_io.read ?count:None)
+  pread ~timeout:60. ["sh"; "-c"; "pixz -i "^archive^" -x "^file^" | tar -xO"] (Lwt_io.read ?count:None)
 
 let compress_tpxz_archive ~cwd ~directories archive =
   let cwd = Fpath.to_string cwd in
