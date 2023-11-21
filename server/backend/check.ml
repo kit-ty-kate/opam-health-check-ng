@@ -32,18 +32,35 @@ let cache ~conf =
 
 let network = `Default
 
-let docker_build ~conf ~base_dockerfile ~stdout c =
+let get_build_counter =
+  let r = ref 0L in
+  fun () ->
+    r := Int64.succ !r;
+    !r
+
+let docker_build ~keep ~conf ~base_dockerfile ~stdout c =
+  let label_or_tag =
+    fmt "opam-health-check-%s-%Ld" (Server_configfile.name conf) (get_build_counter ())
+  in
   let stdin, fd = Lwt_unix.pipe () in
   let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
   Lwt_unix.set_close_on_exec fd;
-  let proc = Oca_lib.exec ~stdin ~stdout ~stderr:stdout (["docker";"buildx";"build";"--progress=plain";"-"]) in
+  let proc = Oca_lib.exec ~stdin ~stdout ~stderr:stdout ["docker";"buildx";"build";"--progress=plain";"--pull";if keep then "--tag" else "--label";label_or_tag;"-"] in
   let dockerfile =
     let ( @@ ) = Dockerfile.( @@ ) in
     base_dockerfile @@ Dockerfile.run ~cache:(cache ~conf) ~network "%s" c
   in
   let%lwt () = Oca_lib.write_line fd (Format.sprintf "%a" Dockerfile.pp dockerfile) in
   let%lwt () = Lwt_unix.close fd in
-  proc
+  let%lwt proc = proc in
+  let%lwt () =
+    if keep then
+      Lwt.return_unit
+    else
+      let%lwt _ = Oca_lib.exec ~stdin ~stdout ~stderr:stdout ["docker";"system";"prune";"--force";"--filter";"label="^label_or_tag] in
+      Lwt.return_unit
+  in
+  Lwt.return proc
 
 let exec_out ~fexec ~fout =
   let stdin, stdout = Lwt_unix.pipe () in
@@ -66,7 +83,7 @@ let read_line_docker_build stdin =
       in
       Lwt.return (Some (line, content))
 
-let docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default c =
+let docker_build_str ~keep ~debug ~conf ~base_dockerfile ~stderr ~default c =
   let rec aux ~stdin =
     (* TODO: Use --progress=rawjson whenever it's available *)
     match%lwt read_line_docker_build stdin with
@@ -86,7 +103,7 @@ let docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default c =
   in
   match%lwt
     exec_out ~fout:aux ~fexec:(fun ~stdout ->
-      docker_build ~conf ~base_dockerfile ~stdout (fmt "echo '%f' > /dev/null && echo @@@OUTPUT && %s && echo @@@OUTPUT" (Unix.time ()) c)
+      docker_build ~keep ~conf ~base_dockerfile ~stdout (fmt "echo '%f' > /dev/null && echo @@@OUTPUT && %s && echo @@@OUTPUT" (Unix.time ()) c)
     )
   with
   | (Ok (), r) ->
@@ -173,7 +190,7 @@ let run_job ~conf ~pool ~stderr ~base_dockerfile ~switch ~num logdir pkg =
     let logfile = Server_workdirs.tmplogfile ~pkg ~switch logdir in
     match%lwt
       Oca_lib.with_file Unix.[O_WRONLY; O_CREAT; O_TRUNC] 0o640 (Fpath.to_string logfile) (fun stdout ->
-        docker_build ~conf ~base_dockerfile ~stdout (run_script ~conf pkg)
+        docker_build ~keep:false ~conf ~base_dockerfile ~stdout (run_script ~conf pkg)
       )
     with
     | Ok () ->
@@ -284,7 +301,7 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
 let get_pkgs ~debug ~conf ~stderr (switch, base_dockerfile) =
   let switch = Intf.Compiler.to_string (Intf.Switch.name switch) in
   let%lwt () = Oca_lib.write_line stderr ("Getting packages list for "^switch^"… (this may take an hour or two)") in
-  let%lwt pkgs = docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:None (Server_configfile.list_command conf) in
+  let%lwt pkgs = docker_build_str ~keep:true ~debug ~conf ~base_dockerfile ~stderr ~default:None (Server_configfile.list_command conf) in
   let pkgs = List.filter begin fun pkg ->
     Oca_lib.is_valid_filename pkg &&
     match Intf.Pkg.name (Intf.Pkg.create ~full_name:pkg ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) with (* TODO: Remove this horror *)
@@ -329,7 +346,7 @@ let revdeps_script pkg =
 
 let get_metadata ~debug ~conf ~jobs ~pool ~stderr logdir (_, base_dockerfile) pkgs =
   let get_revdeps ~base_dockerfile ~pkgname ~pkg ~logdir =
-    let%lwt revdeps = docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:(Some []) (revdeps_script pkg) in
+    let%lwt revdeps = docker_build_str ~keep:false ~debug ~conf ~base_dockerfile ~stderr ~default:(Some []) (revdeps_script pkg) in
     let module Set = Set.Make(String) in
     let revdeps = Set.of_list revdeps in
     let revdeps = Set.remove pkgname revdeps in (* https://github.com/ocaml/opam/issues/4446 *)
@@ -339,7 +356,7 @@ let get_metadata ~debug ~conf ~jobs ~pool ~stderr logdir (_, base_dockerfile) pk
   in
   let get_latest_metadata ~base_dockerfile ~pkgname ~logdir = (* TODO: Get this locally by merging all the repository and parsing the opam files using opam-core *)
     let%lwt opam =
-      docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:(Some [])
+      docker_build_str ~keep:false ~debug ~conf ~base_dockerfile ~stderr ~default:(Some [])
         ("opam show --raw "^Filename.quote pkgname)
     in
     Lwt_io.with_file ~mode:Lwt_io.output (Fpath.to_string (Server_workdirs.tmpopamfile ~pkg:pkgname logdir)) (fun c ->
