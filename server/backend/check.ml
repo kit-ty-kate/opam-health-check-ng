@@ -248,11 +248,12 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
       ]
     ) extra_repos
   ) @ [
+    (* TODO: Support different distributions *)
+    run ~network "sudo rm /etc/apt/apt.conf.d/docker-clean && echo 'APT::Install-Recommends \"false\";' | sudo tee -a /etc/apt/apt.conf && cd /var/cache/apt/archives/ && opam update --depexts && sudo apt-get download $(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances --no-pre-depends $(opam list --depexts --available) | grep '^\w')";
     run ~cache ~network "opam switch create --repositories=%sdefault '%s' '%s'"
       (List.fold_left (fun acc (repo, _) -> Intf.Repository.name repo^","^acc) "" extra_repos)
       (Intf.Compiler.to_string (Intf.Switch.name switch))
       (Intf.Switch.switch switch);
-    run ~network "opam update --depexts";
   ] @
   (* TODO: Should this be removed now that it is part of the base docker images? What about macOS? *)
   (if OpamVersionCompare.compare (Intf.Switch.switch switch) "4.08" < 0 then
@@ -535,7 +536,7 @@ let run ~debug ~on_finished ~conf cache workdir =
             let new_logdir = Server_workdirs.new_logdir ~compressed ~hash:opam_repo_commit ~start_time workdir in
             let%lwt () = Server_workdirs.init_base_jobs ~switches:switches' new_logdir in
             let pool = Lwt_pool.create (Server_configfile.processes conf) (fun () -> Lwt.return_unit) in
-            let%lwt pkgs = Lwt_list.map_p (get_pkgs ~debug ~stderr ~conf) switches in
+            let%lwt pkgs = Lwt_list.map_s (get_pkgs ~debug ~stderr ~conf) switches in
             let pkgs = Pkg_set.of_list (List.concat pkgs) in
             let%lwt () = Oca_lib.timer_log timer stderr "Initialization" in
             let (_, jobs) = run_jobs ~conf ~pool ~stderr new_logdir switches pkgs in
