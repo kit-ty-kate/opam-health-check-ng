@@ -292,7 +292,7 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
        env [
          "DUNE_CACHE", "enabled";
          "DUNE_CACHE_TRANSPORT", "direct";
-         "DUNE_CACHE_DUPLICATION", "copy";
+         "DUNE_CACHE_STORAGE_MODE", "copy";
        ]
      ]
    else
