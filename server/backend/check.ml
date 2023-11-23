@@ -4,6 +4,8 @@ let fmt = Printf.sprintf
 let uid = 1000
 let gid = 1000
 
+let () = Random.self_init ()
+
 module Dockerfile = struct
   include Dockerfile
 
@@ -420,15 +422,18 @@ let move_tmpdirs_to_final ~switches logdir workdir =
   Oca_lib.rm_rf tmpdir
 
 let run_jobs ~conf ~pool ~stderr logdir switches pkgs =
-  let len_suffix = "/"^string_of_int (Pkg_set.cardinal pkgs * List.length switches) in
-  Pkg_set.fold begin fun full_name (i, jobs) ->
+  (* NOTE: Randomize the list to avoid having several containers downloading the same archives at the same time *)
+  let pkgs = Pkg_set.to_list pkgs in
+  let pkgs = List.fast_sort (fun _ _ -> if Random.bool () then 1 else -1) pkgs in
+  let len_suffix = "/"^string_of_int (List.length pkgs * List.length switches) in
+  List.fold_left begin fun (i, jobs) full_name ->
     List.fold_left begin fun (i, jobs) (switch, base_dockerfile) ->
       let i = succ i in
       let num = string_of_int i^len_suffix in
       let job = run_job ~conf ~pool ~stderr ~base_dockerfile ~switch ~num logdir full_name in
       (i, job :: jobs)
     end (i, jobs) switches
-  end pkgs (0, [])
+  end (0, []) pkgs
 
 let trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf =
   let public_url = Server_configfile.public_url conf in
