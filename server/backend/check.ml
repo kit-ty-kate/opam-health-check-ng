@@ -126,7 +126,7 @@ let failure_kind conf ~pkg logfile =
   let timeout = Server_configfile.job_timeout conf in
   Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string logfile) begin fun ic ->
     let rec lookup res =
-      match%lwt Lwt_io.read_line_opt ic with
+      match%lwt read_line_docker_build ic with
       | Some "+- The following actions failed" -> lookup `Failure
       | Some "+- The following actions were aborted" -> Lwt.return `Partial
       | Some line when String.equal ("[ERROR] No package named "^pkgname^" found.") line ||
