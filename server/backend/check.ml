@@ -185,21 +185,18 @@ let run_script ~conf pkg = fmt {|
 opam install -j1 -vy '%s'
 res=$?
 if test $res = 31 ; then
-  build_dir=$(opam var prefix)/.opam-switch/build
-  failed=$(ls "$build_dir")
-  partial=""
-  for pkg in $failed ; do
+  for pkg in $(ls "$(opam var prefix)/.opam-switch/build") ; do
     if opam show -f x-ci-accept-failures: "$pkg" | grep -qF '"%s"' ; then
       echo "A package failed and has been disabled for CI using the 'x-ci-accept-failures' field."
     fi
     test "$pkg" != '%s' && partial="$partial $pkg"
   done
-  test "$partial" != "" && echo "opam-health-check detected dependencies failing: ${partial_fails}"
+  test "$partial" != "" && echo "opam-health-check detected dependencies failing: $partial"
 fi
 %s
 %s
 exit $res
-|} pkg pkg (Server_configfile.platform_distribution conf) (with_test ~conf pkg) (with_lower_bound ~conf pkg)
+|} pkg (Server_configfile.platform_distribution conf) pkg (with_test ~conf pkg) (with_lower_bound ~conf pkg)
 
 let run_job ~conf ~pool ~stderr ~base_dockerfile ~switch ~num logdir pkg =
   Lwt_pool.use pool begin fun () ->
