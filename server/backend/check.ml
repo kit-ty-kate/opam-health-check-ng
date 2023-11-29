@@ -9,63 +9,91 @@ let () = Random.self_init ()
 module Dockerfile = struct
   include Dockerfile
 
-  let run ?cache ?(network=`None) fmt =
-    Printf.ksprintf (fun cmd -> run ?mounts:cache ~network "<<EOT\n%s\nEOT" cmd) fmt
+  let run ?(network=`None) fmt =
+    Printf.ksprintf (fun cmd -> run ~network "<<EOT\n%s\nEOT" cmd) fmt
 end
 
-let cache ~conf =
-  let os = Server_configfile.platform_os conf in
-  let opam_cache = match os with
-    | "linux" -> Some (Dockerfile.mount_cache ~id:"opam-archives" ~target:"/home/opam/.opam/download-cache" ~uid ~gid ())
-    | "freebsd" -> Some (Dockerfile.mount_cache ~id:"opam-archives" ~target:"/usr/home/opam/.opam/download-cache" ())
-    | "macos" -> Some (Dockerfile.mount_cache ~id:"opam-archives" ~target:"/Users/mac1000/.opam/download-cache" ())
-    | os -> failwith ("Opam cache not supported on '" ^ os) (* TODO: Should other platforms simply take the same ocurrent/opam: prefix? *)
+let volumes ~conf =
+  (* TODO: remove this hack *)
+  let opam_packages_init = {|set -e
+mkdir /tmp/tmp-opam-repo
+cd /tmp/tmp-opam-repo
+repos=$(opam repo list -s)
+for pkg in $(cat ~/opam-packages.list) ; do
+  path="packages/$(echo "$pkg" | cut -d. -f1)/$pkg"
+  for repo in $(echo "$repos") ; do
+    opamfile="/home/opam/.opam/repo/$repo/$path/opam"
+    if test -f "$opamfile" ; then
+      mkdir -p "$path"
+      cat "$opamfile" > "$path/opam"
+      break
+    fi
+  done
+done
+echo 'opam-version: "2.0"' > repo
+sudo chown opam:opam ~/opam-cache
+opam admin cache ~/opam-cache|}
   in
-  let brew_cache = match os with
-    | "macos" -> Some (Dockerfile.mount_cache ~id:"homebrew" ~target:"/Users/mac1000/Library/Caches/Homebrew" ())
-    | _ -> None
+  (* TODO: Support different distributions *)
+  let apt_packages_init = {|set -e
+for pkg in $(cat ~/apt-packages.list) ; do
+  sudo apt-get install -yy --download-only "$pkg" || true
+done|}
   in
-  let dune_cache =
-    if Server_configfile.enable_dune_cache conf
-    then Some (Dockerfile.mount_cache ~id:"opam-dune-cache" ~target:"/home/opam/.cache/dune" ~uid ~gid ())
-    else None
-  in
-  List.filter_map (fun x -> x) [opam_cache; brew_cache; dune_cache]
+  let dune_cache_init = "sudo chown opam:opam /home/opam/.cache/dune" in
+  ("opam-archives-cache", "/home/opam/opam-cache", opam_packages_init) ::
+  ("opam-apt-cache", "/var/cache/apt/archives", apt_packages_init) ::
+  if Server_configfile.enable_dune_cache conf
+  then [("opam-dune-cache", "/home/opam/.cache/dune", dune_cache_init)]
+  else []
 
 let network = `Default
 
-let get_build_counter =
-  let r = ref 0L in
-  fun () ->
-    r := Int64.succ !r;
-    !r
+module Docker_img_hashtbl = Hashtbl.Make (String)
+let docker_img_hashtbl = Docker_img_hashtbl.create 1
 
-let docker_prune_mutex = Lwt_mutex.create ()
-
-let docker_build ~keep ~conf ~base_dockerfile ~stdout c =
-  let label_or_tag =
-    fmt "opam-health-check-%s-%Ld" (Server_configfile.name conf) (get_build_counter ())
+let docker_build ~conf ~base_dockerfile ~stdout cmd =
+  let base_dockerfile = Format.sprintf "%a" Dockerfile.pp base_dockerfile in
+  let%lwt tag, volumes =
+    match Docker_img_hashtbl.find_opt docker_img_hashtbl base_dockerfile with
+    | None ->
+        let dockerfile_hash = Hashtbl.hash (base_dockerfile : string) in (* TODO: replace with String.hash when we switch to OCaml >= 5.0 *)
+        let tag = fmt "opam-health-check-%s-%d" (Server_configfile.name conf) dockerfile_hash in
+        let stdin, fd = Lwt_unix.pipe () in
+        let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
+        Lwt_unix.set_close_on_exec fd;
+        let proc = Oca_lib.exec ~stdin ~stdout ~stderr:stdout ["docker";"buildx";"build";"--progress=plain";"-t";tag;"-"] in
+        let%lwt () = Oca_lib.write_line fd base_dockerfile in
+        let%lwt () = Lwt_unix.close fd in
+        begin match%lwt proc with
+        | Ok () ->
+            let%lwt volumes =
+              Lwt_list.fold_left_s (fun acc (volume, path, init) ->
+                let volume = ["--volume";volume^":"^path] in
+                match%lwt Oca_lib.exec ~stdin:`Close ~stdout ~stderr:stdout (["docker";"run";"--rm"]@volume@[tag;"sh";"-c";init]) with
+                | Ok () -> Lwt.return (acc @ volume)
+                | Error () -> failwith "volume creation failed"
+              ) [] (volumes ~conf)
+            in
+            Docker_img_hashtbl.add docker_img_hashtbl base_dockerfile tag;
+            Lwt.return (tag, volumes)
+        | Error () -> failwith "docker build failed"
+        end
+    | Some tag ->
+        let volumes =
+          List.fold_left (fun acc (volume, path, _init) ->
+            acc @ ["--volume";volume^":"^path]
+          ) [] (volumes ~conf)
+        in
+        Lwt.return (tag, volumes)
   in
   let stdin, fd = Lwt_unix.pipe () in
   let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
   Lwt_unix.set_close_on_exec fd;
-  let proc = Oca_lib.exec ~stdin ~stdout ~stderr:stdout ["docker";"buildx";"build";"--progress=plain";if keep then "--tag" else "--label";label_or_tag;"-"] in
-  let dockerfile =
-    let ( @@ ) = Dockerfile.( @@ ) in
-    base_dockerfile @@ Dockerfile.run ~cache:(cache ~conf) ~network "%s" c
-  in
-  let%lwt () = Oca_lib.write_line fd (Format.sprintf "%a" Dockerfile.pp dockerfile) in
+  let proc = Oca_lib.exec ~stdin ~stdout ~stderr:stdout (["docker";"run";"--rm";"--network=none"]@volumes@["-i";tag]) in
+  let%lwt () = Oca_lib.write_line fd cmd in
   let%lwt () = Lwt_unix.close fd in
-  let%lwt proc = proc in
-  let%lwt () =
-    if keep then
-      Lwt.return_unit
-    else
-      Lwt_mutex.with_lock docker_prune_mutex @@ fun () ->
-      let%lwt _ = Oca_lib.exec ~stdin:`Close ~stdout ~stderr:stdout ["docker";"system";"prune";"--force";"--filter";"label="^label_or_tag] in
-      Lwt.return_unit
-  in
-  Lwt.return proc
+  proc
 
 let exec_out ~fexec ~fout =
   let stdin, stdout = Lwt_unix.pipe () in
@@ -75,40 +103,26 @@ let exec_out ~fexec ~fout =
   let%lwt r = proc in
   Lwt.return (r, res)
 
-let read_line_docker_build stdin =
-  match%lwt Oca_lib.read_line_opt stdin with
-  | None -> Lwt.return_none
-  | Some line ->
-      let content =
-        let ( >>= ) = Option.bind in
-        String.index_from_opt line 0 ' ' >>= fun i1 ->
-        String.index_from_opt line (i1 + 1) ' ' >>= fun i2 ->
-        let index = i2 + 1 in
-        Some (String.sub line index (String.length line - index))
-      in
-      Lwt.return (Some (line, content))
-
-let docker_build_str ~keep ~debug ~conf ~base_dockerfile ~stderr ~default c =
+let docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default c =
   let rec aux ~stdin =
     (* TODO: Use --progress=rawjson whenever it's available *)
-    match%lwt read_line_docker_build stdin with
-    | Some (_, Some "@@@OUTPUT") ->
+    match%lwt Oca_lib.read_line_opt stdin with
+    | Some "@@@OUTPUT" ->
         let rec aux acc =
-          match%lwt read_line_docker_build stdin with
-          | Some (_, Some "@@@OUTPUT") -> Lwt.return (List.rev acc)
-          | Some (_, Some x) -> aux (x :: acc)
-          | Some (line, None) -> Lwt.fail (Failure (fmt "Error: unexpected docker build output format: %s" line))
+          match%lwt Oca_lib.read_line_opt stdin with
+          | Some "@@@OUTPUT" -> Lwt.return (List.rev acc)
+          | Some x -> aux (x :: acc)
           | None -> Lwt.fail (Failure "Error: Closing @@@OUTPUT could not be detected")
         in
         aux []
-    | Some (line, _) ->
+    | Some line ->
         let%lwt () = (if debug then Oca_lib.write_line stderr line else Lwt.return_unit) in
         aux ~stdin
     | None -> Lwt.return_nil
   in
   match%lwt
     exec_out ~fout:aux ~fexec:(fun ~stdout ->
-      docker_build ~keep ~conf ~base_dockerfile ~stdout (fmt "echo '%f' > /dev/null && echo @@@OUTPUT && %s && echo @@@OUTPUT" (Unix.time ()) c)
+      docker_build ~conf ~base_dockerfile ~stdout (fmt "echo '%f' > /dev/null && echo @@@OUTPUT && %s && echo @@@OUTPUT" (Unix.time ()) c)
     )
   with
   | (Ok (), r) ->
@@ -126,7 +140,7 @@ let failure_kind conf ~pkg logfile =
   let timeout = Server_configfile.job_timeout conf in
   Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string logfile) begin fun ic ->
     let rec lookup res =
-      match%lwt read_line_docker_build ic with
+      match%lwt Lwt_io.read_line_opt ic with
       | Some "+- The following actions failed" -> lookup `Failure
       | Some "+- The following actions were aborted" -> Lwt.return `Partial
       | Some line when String.equal ("[ERROR] No package named "^pkgname^" found.") line ||
@@ -142,16 +156,13 @@ let failure_kind conf ~pkg logfile =
     lookup `Other
   end
 
-let with_test pkg = {|
-if [ $res = 0 ]; then
-    opam remove -y "|}^pkg^{|"
-    opam install -j1 -vty "|}^pkg^{|"
-    res=$?
-    if [ $res = 20 ]; then
-        res=0
-    fi
+let with_test pkg = fmt {|
+opam reinstall -j1 -vty '%s'
+res=$?
+if [ $res = 20 ]; then
+    res=0
 fi
-|}
+|} pkg
 
 let with_test ~conf pkg =
   if Server_configfile.with_test conf then
@@ -159,13 +170,9 @@ let with_test ~conf pkg =
   else
     ""
 
-let with_lower_bound pkg = {|
-if [ $res = 0 ]; then
-    opam remove -y "|}^pkg^{|"
-    env OPAMCRITERIA="+removed,+count[version-lag,solution]" opam install -j1 -vy "|}^pkg^{|"
-    res=$?
-fi
-|}
+let with_lower_bound pkg = fmt {|
+env 'OPAMCRITERIA=+removed,+count[version-lag,solution]' opam reinstall -j1 -vy '%s'
+|} pkg
 
 let with_lower_bound ~conf pkg =
   if Server_configfile.with_lower_bound conf then
@@ -173,20 +180,19 @@ let with_lower_bound ~conf pkg =
   else
     ""
 
-let run_script ~conf pkg = {|
-opam remove -y "|}^pkg^{|"
-opam install -j1 -vy "|}^pkg^{|"
+let run_script ~conf pkg = fmt {|
+opam install -j1 -vy '%s'
 res=$?
 if [ $res = 31 ]; then
-    if opam show -f x-ci-accept-failures: "|}^pkg^{|" | grep -q '"|}^Server_configfile.platform_distribution conf^{|"'; then
+    if opam show -f x-ci-accept-failures: '%s' | grep -q '"%s"'; then
         echo "This package failed and has been disabled for CI using the 'x-ci-accept-failures' field."
         exit 69
     fi
 fi
-|}^with_test ~conf pkg^{|
-|}^with_lower_bound ~conf pkg^{|
+%s
+%s
 exit $res
-|}
+|} pkg pkg (Server_configfile.platform_distribution conf) (with_test ~conf pkg) (with_lower_bound ~conf pkg)
 
 let run_job ~conf ~pool ~stderr ~base_dockerfile ~switch ~num logdir pkg =
   Lwt_pool.use pool begin fun () ->
@@ -195,7 +201,7 @@ let run_job ~conf ~pool ~stderr ~base_dockerfile ~switch ~num logdir pkg =
     let logfile = Server_workdirs.tmplogfile ~pkg ~switch logdir in
     match%lwt
       Oca_lib.with_file Unix.[O_WRONLY; O_CREAT; O_TRUNC] 0o640 (Fpath.to_string logfile) (fun stdout ->
-        docker_build ~keep:false ~conf ~base_dockerfile ~stdout (run_script ~conf pkg)
+        docker_build ~conf ~base_dockerfile ~stdout (run_script ~conf pkg)
       )
     with
     | Ok () ->
@@ -235,7 +241,6 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
     ) extra_repos
   in
   let open! Dockerfile in
-  let cache = cache ~conf in
   let os = Server_configfile.platform_os conf in
   let distribution = Server_configfile.platform_distribution conf in
   let img = match os with
@@ -270,27 +275,29 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
       ]
     ) extra_repos
   ) @ [
-    (* TODO: Support different distributions *)
-    run ~network "sudo rm /etc/apt/apt.conf.d/docker-clean && echo 'APT::Install-Recommends \"false\";' | sudo tee -a /etc/apt/apt.conf && cd /var/cache/apt/archives/ && opam update --depexts && sudo apt-get download $(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances --no-pre-depends $(opam list --depexts --available) | grep '^\w')";
-    run ~cache ~network "opam switch create --repositories=%sdefault '%s' '%s'"
+    run ~network "opam switch create --repositories=%sdefault '%s' '%s'"
       (List.fold_left (fun acc (repo, _) -> Intf.Repository.name repo^","^acc) "" extra_repos)
       (Intf.Compiler.to_string (Intf.Switch.name switch))
       (Intf.Switch.switch switch);
+    run "opam list --available --installable --short --all-versions > ~/opam-packages.list";
+    run "opam list --depexts --available --installable --short --all-versions > ~/apt-packages.list";
+    run {|opam option --global 'archive-mirrors=["file:///home/opam/opam-cache"]'|};
+    run ~network {|sudo rm /etc/apt/apt.conf.d/docker-clean && (echo 'APT::Install-Recommends "false";' && echo 'Debug::NoLocking "true";') | sudo tee -a /etc/apt/apt.conf && opam update --depexts|};
   ] @
   (* TODO: Should this be removed now that it is part of the base docker images? What about macOS? *)
   (if OpamVersionCompare.compare (Intf.Switch.switch switch) "4.08" < 0 then
-     [run ~cache ~network "opam install -y ocaml-secondary-compiler"]
+     [run ~network "opam install -y ocaml-secondary-compiler"]
      (* NOTE: See https://github.com/ocaml/opam-repository/pull/15404
         and https://github.com/ocaml/opam-repository/pull/15642 *)
    else
      []
   ) @
   (match Server_configfile.extra_command conf with
-   | Some c -> [run ~cache ~network "%s" c]
+   | Some c -> [run ~network "%s" c]
    | None -> []
   ) @
   (if Server_configfile.enable_dune_cache conf then
-     [ run ~cache ~network "opam pin add -k version dune $(opam show -f version dune)";
+     [ run ~network "opam pin add -k version dune $(opam show -f version dune)";
        env [
          "DUNE_CACHE", "enabled";
          "DUNE_CACHE_TRANSPORT", "direct";
@@ -306,7 +313,7 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
 let get_pkgs ~debug ~conf ~stderr (switch, base_dockerfile) =
   let switch = Intf.Compiler.to_string (Intf.Switch.name switch) in
   let%lwt () = Oca_lib.write_line stderr ("Getting packages list for "^switch^"… (this may take an hour or two)") in
-  let%lwt pkgs = docker_build_str ~keep:true ~debug ~conf ~base_dockerfile ~stderr ~default:None (Server_configfile.list_command conf) in
+  let%lwt pkgs = docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:None (Server_configfile.list_command conf) in
   let pkgs = List.filter begin fun pkg ->
     Oca_lib.is_valid_filename pkg &&
     match Intf.Pkg.name (Intf.Pkg.create ~full_name:pkg ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) with (* TODO: Remove this horror *)
@@ -351,7 +358,7 @@ let revdeps_script pkg =
 
 let get_metadata ~debug ~conf ~jobs ~pool ~stderr logdir (_, base_dockerfile) pkgs =
   let get_revdeps ~base_dockerfile ~pkgname ~pkg ~logdir =
-    let%lwt revdeps = docker_build_str ~keep:false ~debug ~conf ~base_dockerfile ~stderr ~default:(Some []) (revdeps_script pkg) in
+    let%lwt revdeps = docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:(Some []) (revdeps_script pkg) in
     let module Set = Set.Make(String) in
     let revdeps = Set.of_list revdeps in
     let revdeps = Set.remove pkgname revdeps in (* https://github.com/ocaml/opam/issues/4446 *)
@@ -361,7 +368,7 @@ let get_metadata ~debug ~conf ~jobs ~pool ~stderr logdir (_, base_dockerfile) pk
   in
   let get_latest_metadata ~base_dockerfile ~pkgname ~logdir = (* TODO: Get this locally by merging all the repository and parsing the opam files using opam-core *)
     let%lwt opam =
-      docker_build_str ~keep:false ~debug ~conf ~base_dockerfile ~stderr ~default:(Some [])
+      docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:(Some [])
         ("opam show --raw "^Filename.quote pkgname)
     in
     Lwt_io.with_file ~mode:Lwt_io.output (Fpath.to_string (Server_workdirs.tmpopamfile ~pkg:pkgname logdir)) (fun c ->
