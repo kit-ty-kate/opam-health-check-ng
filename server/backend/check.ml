@@ -157,11 +157,10 @@ let failure_kind conf ~pkg logfile =
   end
 
 let with_test pkg = fmt {|
+test $res != 0 && exit $res
 opam reinstall -j1 -vty '%s'
 res=$?
-if [ $res = 20 ]; then
-    res=0
-fi
+test $res = 20 && res=0
 |} pkg
 
 let with_test ~conf pkg =
@@ -171,7 +170,9 @@ let with_test ~conf pkg =
     ""
 
 let with_lower_bound pkg = fmt {|
+test $res != 0 && exit $res
 env 'OPAMCRITERIA=+removed,+count[version-lag,solution]' opam reinstall -j1 -vy '%s'
+res=$?
 |} pkg
 
 let with_lower_bound ~conf pkg =
@@ -183,11 +184,17 @@ let with_lower_bound ~conf pkg =
 let run_script ~conf pkg = fmt {|
 opam install -j1 -vy '%s'
 res=$?
-if [ $res = 31 ]; then
-    if opam show -f x-ci-accept-failures: '%s' | grep -q '"%s"'; then
-        echo "This package failed and has been disabled for CI using the 'x-ci-accept-failures' field."
-        exit 69
+if test $res = 31 ; then
+  build_dir=$(opam var prefix)/.opam-switch/build
+  failed=$(ls "$build_dir")
+  partial=""
+  for pkg in $failed ; do
+    if opam show -f x-ci-accept-failures: "$pkg" | grep -qF '"%s"' ; then
+      echo "A package failed and has been disabled for CI using the 'x-ci-accept-failures' field."
     fi
+    test "$pkg" != '%s' && partial="$partial $pkg"
+  done
+  test "$partial" != "" && echo "opam-health-check detected dependencies failing: ${partial_fails}"
 fi
 %s
 %s
