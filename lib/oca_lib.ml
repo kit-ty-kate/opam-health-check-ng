@@ -49,6 +49,55 @@ let rec scan_dir ~full_path dirname =
 
 let scan_dir dirname = scan_dir ~full_path:dirname (Fpath.v ".")
 
+let read_line_opt fd =
+  let buffer = Buffer.create 256 in
+  let tmp_buf = Bytes.create 1 in
+  let rec aux () =
+    match%lwt Lwt_unix.read fd tmp_buf 0 1 with
+    | 0 -> Lwt.return None
+    | 1 ->
+        begin match Bytes.get tmp_buf 0 with
+        | '\n' -> Lwt.return (Some (Buffer.contents buffer))
+        | c -> Buffer.add_char buffer c; aux ()
+        end
+    | _ -> assert false
+  in
+  aux ()
+
+let write fd str =
+  let rec aux idx len =
+    let%lwt bytes_written = Lwt_unix.write_string fd str idx len in
+    match len - bytes_written with
+    | 0 -> Lwt.return_unit
+    | new_len -> aux (idx + bytes_written) new_len
+  in
+  aux 0 (String.length str)
+
+let write_line fd str =
+  write fd (str^"\n")
+
+let with_file flags mode filename f =
+  let%lwt fd = Lwt_unix.openfile filename flags mode in
+  Lwt.finalize (fun () -> f fd) (fun () -> Lwt_unix.close fd)
+
+let exec ~stdin ~stdout ~stderr cmd =
+  let stdout = `FD_copy (Lwt_unix.unix_file_descr stdout) in
+  let stderr = `FD_copy (Lwt_unix.unix_file_descr stderr) in
+  (* TODO: maybe to factorize with pread below *)
+  Lwt_process.with_process_none ~stdin ~stdout ~stderr ("", Array.of_list cmd) (fun proc ->
+    match%lwt proc#close with
+    | Unix.WEXITED 0 ->
+        Lwt.return (Ok ())
+    | Unix.WEXITED n ->
+        let cmd = String.concat " " cmd in
+        prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^")");
+        Lwt.return (Error ())
+    | Unix.WSIGNALED n | Unix.WSTOPPED n ->
+        let cmd = String.concat " " cmd in
+        prerr_endline ("Command '"^cmd^"' killed by a signal (n°"^string_of_int n^")");
+        Lwt.return (Error ())
+  )
+
 let pread ?cwd ?exit1 ~timeout cmd f =
   Lwt_process.with_process_in ?cwd ~timeout ~stdin:`Close ("", Array.of_list cmd) begin fun proc ->
     let%lwt res = f proc#stdout in
@@ -61,7 +110,7 @@ let pread ?cwd ?exit1 ~timeout cmd f =
             Lwt.return default_val
         | _, _ ->
             let cmd = String.concat " " cmd in
-            prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^".");
+            prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^")");
             Lwt.fail (Failure "process failure")
         end
     | Unix.WSIGNALED n | Unix.WSTOPPED n ->
@@ -84,7 +133,7 @@ let scan_tpxz_archive archive =
 let random_access_tpxz_archive ~file archive =
   let file = Filename.quote file in
   let archive = Filename.quote (Fpath.to_string archive) in
-  pread ~timeout:60. ["sh"; "-c"; "pixz -x "^file^" -i "^archive^" | tar -xO"] (Lwt_io.read ?count:None)
+  pread ~timeout:60. ["sh"; "-c"; "pixz -i "^archive^" -x "^file^" | tar -xO"] (Lwt_io.read ?count:None)
 
 let compress_tpxz_archive ~cwd ~directories archive =
   let cwd = Fpath.to_string cwd in
@@ -155,8 +204,7 @@ let timer_log timer c msg =
   let start_time = !timer in
   let end_time = Unix.time () in
   let time_span = end_time -. start_time in
-  let%lwt () = Lwt_io.write_line c ("Done. "^msg^" took: "^string_of_float time_span^" seconds") in
-  let%lwt () = Lwt_io.flush c in
+  let%lwt () = write_line c ("Done. "^msg^" took: "^string_of_float time_span^" seconds") in
   timer := Unix.time ();
   Lwt.return_unit
 
@@ -166,7 +214,7 @@ let default_html_port = "8080"
 let default_public_url = "http://check.ocamllabs.io"
 let default_admin_port = "9999"
 let default_admin_name = "admin"
-let default_auto_run_interval = 48 (* 48 hours *)
-let default_processes = 200
+let default_auto_run_interval = 0 (* in hours (0 disables auto-run) *)
+let default_processes = Domain.recommended_domain_count ()
 let default_list_command = "opam list --available --installable --short --all-versions"
 let localhost = "localhost"

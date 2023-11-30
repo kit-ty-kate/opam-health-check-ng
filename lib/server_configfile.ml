@@ -117,12 +117,17 @@ let set_config conf = function
       List.iter (function
         | _, `Null -> ()
         | "os" as field, `String os ->
+            if not (String.equal os "linux") then (* TODO: change this when other OSs are supported again *)
+              failwith (Printf.sprintf "Config parser: platform.os does not support '%s' (the only value currently supported is \"linux\")" os);
             set_field ~field (fun () -> conf.platform_os <- Some os) conf.platform_os
         | "arch" as field, `String arch ->
             set_field ~field (fun () -> conf.platform_arch <- Some arch) conf.platform_arch
         | "custom-pool" as field, `String pool ->
+            (* TODO: Support custom-pool again *)
             set_field ~field (fun () -> conf.platform_pool <- Some pool) conf.platform_pool
         | "distribution" as field, `String distribution ->
+            if not (String.equal distribution "debian-unstable") then (* TODO: change this when other distributions are supported again *)
+              failwith (Printf.sprintf "Config parser: platform.distribution does not support '%s' (the only value currently supported is \"debian-unstable\")" distribution);
             set_field ~field (fun () -> conf.platform_distribution <- Some distribution) conf.platform_distribution
         | "image" as field, `String image ->
             set_field ~field (fun () -> conf.platform_image <- Some image) conf.platform_image
@@ -226,6 +231,8 @@ let set_defaults conf =
     conf.platform_distribution <- Some "debian-unstable";
   if Option.is_none conf.platform_image then
     conf.platform_image <- Some "ocaml/opam:debian-unstable@sha256:a13c01aab19715953d47831effb2beb0ac90dc98c13b216893db2550799e3b9f";
+  if Option.is_none conf.ocaml_switches then
+    conf.ocaml_switches <- Some [Intf.Switch.create ~name:"4.14" ~switch:"4.14.1"];
   if Option.is_none conf.slack_webhooks then
     conf.slack_webhooks <- Some [];
   if Option.is_none conf.job_timeout then

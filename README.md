@@ -1,21 +1,29 @@
-### How to install opam-health-check:
+### How to install opam-health-check-ng:
 
 ```
-$ opam pin add opam-health-check .
+$ opam pin add opam-health-check-ng .
 ```
 
-### How to use opam-health-check locally:
+### How to use opam-health-check-ng locally:
 
-For opam-health-check to work you need to start the server like so:
+Prerequisites:
+- A linux machine
+- Docker with buildx enabled
+- ugrep
+- Recommended: tmux
+- Recommended for monitoring: btop, htop, lm-sensors
+- the rest is installed by opam during installation
+
+For opam-health-check-ng to work you need to start the server like so:
 ```
-$ opam-health-serve --connect "$ocluster_cap" "$workdir"
+$ opam-health-serve --debug "$workdir"
 ```
 For instance:
 ```
 $ workdir=/tmp/opam-health-check
-$ ocluster_cap="$HOME/ocluster.cap"
-$ opam-health-serve --connect "$ocluster_cap" "$workdir"
+$ opam-health-serve --debug "$workdir"
 ```
+`--debug` is optional but recommended to start with.
 
 Now simply use the `opam-health-check` command. First you need to initialize it like so:
 ```
@@ -25,27 +33,20 @@ $ opam-health-check init --from-local-workdir "$workdir"
 Now you can send any command to the server using the `opam-health-check` command.
 All subcommands may be listed with `opam-health-check --help`
 
-### OCluster capability file
+### Maximizing performance:
 
-opam-health-check now uses OCluster for its daily use. This means you need
-access to an OCluster instance with its dedicated capability file, which is
-given to the server through the `--connect` option.
+To maximize performance you can set `enable-dune-cache: true` in `config.yaml` as well as
+mount `/var/lib/docker` as `tmpfs`. To do so, add the following line to your `/etc/fstab`:
+```
+tmpfs	/var/lib/docker	tmpfs	nosuid,nodev,size=80%	0	0
+```
+Keep in mind that `enable-dune-cache: true` will use a significant amount of disk space (hundreds of GB)
+off of `XDG_CACHE_HOME` (by default: `$HOME/.cache`) and mounting `/var/lib/docker` as `tmpfs` requires
+a significant amount of RAM (around 25GB for a 32 core system) so it is recommended to have at least
+twice the amount of RAM you have of CPU cores activated by `opam-health-check` through the `processes`
+configuration option.
 
-To set this up locally, you will need to get run the OCluster scheduler and one or more workers. The
-sequence of steps is:
-
-1. Run the OCluster scheduler probably with the public address `tcp:127.0.0.1:9000`.
-2. Use the OCluster admin command to generate the submission capability for
-   opam-health-check, it will most likely be something like
-   ```
-   $ ocluster-admin add-client --connect ./capnp-secrets/admin.cap opam-health-check > ~/ocluster.cap`.
-   ```
-3. Add a new worker to the pool you are using.
-4. Run `opam-health-serve`.
-5. Initialise `opam-health-check` as described above, add some opam switches and
-   then run the checks.
-
-### How to use opam-health-check remotely:
+### How to use opam-health-check-ng remotely:
 
 As with local opam-health-check you need to have a server started somewhere and accessible.
 Don't forget to open the admin and http ports. Default ports are respectively 6666 and 8080.
@@ -76,7 +77,7 @@ You should make sure no instance of `opam-health-serve` is running before editin
 
 Overall this takes a while. You can run `opam-health-check log` to follow the progress. Once it's done, you can visit `http://localhost:port` (where `port` is set in your `config.yaml`) to visualize the results.
 
-**Can I use opam-health-check to build packages on a custom compiler switch?**
+**Can I use opam-health-check-ng to build packages on a custom compiler switch?**
 
 Sure, to do that, you need to fork [opam-repository](https://github.com/ocaml/opam-repository/), add your compiler switch to it, and point to your forked repository in the `extra-repositories` field of the `config.yaml` file. E.g.:
 

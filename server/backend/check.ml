@@ -1,128 +1,135 @@
 let fmt = Printf.sprintf
 
-let cache ~conf =
-  let os = Server_configfile.platform_os conf in
-  let opam_cache = match os with
-    | "linux" -> Some (Obuilder_spec.Cache.v "opam-archives" ~target:"/home/opam/.opam/download-cache")
-    | "freebsd" -> Some (Obuilder_spec.Cache.v "opam-archives" ~target:"/usr/home/opam/.opam/download-cache")
-    | "macos" -> Some (Obuilder_spec.Cache.v "opam-archives" ~target:"/Users/mac1000/.opam/download-cache")
-    | os -> failwith ("Opam cache not supported on '" ^ os) (* TODO: Should other platforms simply take the same ocurrent/opam: prefix? *)
-  in
-  let brew_cache = match os with
-    | "macos" -> Some (Obuilder_spec.Cache.v "homebrew" ~target:"/Users/mac1000/Library/Caches/Homebrew")
-    | _ -> None
-  in
-  let dune_cache =
-    if Server_configfile.enable_dune_cache conf
-    then Some (Obuilder_spec.Cache.v "opam-dune-cache" ~target:"/home/opam/.cache/dune")
-    else None
-  in
-  List.filter_map (fun x -> x) [opam_cache; brew_cache; dune_cache]
+(* UID/GID of the user "opam" in the ocaml/opam images *)
+let uid = 1000
+let gid = 1000
 
-let network = ["host"]
+let () = Random.self_init ()
 
-let obuilder_to_string spec =
-  Sexplib0.Sexp.to_string_mach (Obuilder_spec.sexp_of_t spec)
+module Dockerfile = struct
+  include Dockerfile
 
-let ocluster_build ~cap ~conf ~base_obuilder ~stdout ~stderr c =
-  let obuilder_content =
-    let {Obuilder_spec.child_builds; from; ops} = base_obuilder in
-    Obuilder_spec.stage
-      ~child_builds
-      ~from
-      (ops @ [Obuilder_spec.run ~cache:(cache ~conf) ~network "%s" c])
+  let run ?(network=`None) fmt =
+    Printf.ksprintf (fun cmd -> run ~network "<<EOT\n%s\nEOT" cmd) fmt
+end
+
+let volumes ~conf =
+  (* TODO: remove this hack *)
+  let opam_packages_init = {|set -e
+mkdir /tmp/tmp-opam-repo
+cd /tmp/tmp-opam-repo
+repos=$(opam repo list -s)
+for pkg in $(cat ~/opam-packages.list) ; do
+  path="packages/$(echo "$pkg" | cut -d. -f1)/$pkg"
+  for repo in $(echo "$repos") ; do
+    opamfile="/home/opam/.opam/repo/$repo/$path/opam"
+    if test -f "$opamfile" ; then
+      mkdir -p "$path"
+      cat "$opamfile" > "$path/opam"
+      break
+    fi
+  done
+done
+echo 'opam-version: "2.0"' > repo
+sudo chown opam:opam ~/opam-cache
+opam admin cache ~/opam-cache|}
   in
-  let obuilder_content = obuilder_to_string obuilder_content in
-  let%lwt service = Capnp_rpc_lwt.Sturdy_ref.connect_exn cap in
-  Capnp_rpc_lwt.Capability.with_ref service @@ fun submission_service ->
-  let action = Cluster_api.Submission.obuilder_build obuilder_content in
-  let cache_hint = "opam-health-check-"^Digest.to_hex (Digest.string obuilder_content) in
-  let pool = Server_configfile.platform_pool conf in
-  Capnp_rpc_lwt.Capability.with_ref (Cluster_api.Submission.submit submission_service ~urgent:false ~pool ~action ~cache_hint) @@ fun ticket ->
-  Capnp_rpc_lwt.Capability.with_ref (Cluster_api.Ticket.job ticket) @@ fun job ->
-  match%lwt Capnp_rpc_lwt.Capability.await_settled job with
-  | Ok () ->
-      let proc =
-        let rec tail job start =
-          match%lwt Cluster_api.Job.log job start with
-          | Error (`Capnp e) -> Lwt_io.write stderr (Fmt.str "Error tailing logs: %a" Capnp_rpc.Error.pp e)
-          | Ok ("", _) -> Lwt.return_unit
-          | Ok (data, next) ->
-              let%lwt () = Lwt_io.write stdout data in
-              tail job next
+  (* TODO: Support different distributions *)
+  let apt_packages_init = {|set -e
+for pkg in $(cat ~/apt-packages.list) ; do
+  sudo apt-get install -yy --download-only "$pkg" || true
+done|}
+  in
+  let dune_cache_init = "sudo chown opam:opam /home/opam/.cache/dune" in
+  ("opam-archives-cache", "/home/opam/opam-cache", opam_packages_init) ::
+  ("opam-apt-cache", "/var/cache/apt/archives", apt_packages_init) ::
+  if Server_configfile.enable_dune_cache conf
+  then [("opam-dune-cache", "/home/opam/.cache/dune", dune_cache_init)]
+  else []
+
+let network = `Default
+
+module Docker_img_hashtbl = Hashtbl.Make (String)
+let docker_img_hashtbl = Docker_img_hashtbl.create 1
+
+let docker_build ~conf ~base_dockerfile ~stdout cmd =
+  let base_dockerfile = Format.sprintf "%a" Dockerfile.pp base_dockerfile in
+  let%lwt tag, volumes =
+    match Docker_img_hashtbl.find_opt docker_img_hashtbl base_dockerfile with
+    | None ->
+        let dockerfile_hash = Hashtbl.hash (base_dockerfile : string) in (* TODO: replace with String.hash when we switch to OCaml >= 5.0 *)
+        let tag = fmt "opam-health-check-%s-%d" (Server_configfile.name conf) dockerfile_hash in
+        let stdin, fd = Lwt_unix.pipe () in
+        let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
+        Lwt_unix.set_close_on_exec fd;
+        let proc = Oca_lib.exec ~stdin ~stdout ~stderr:stdout ["docker";"buildx";"build";"--progress=plain";"-t";tag;"-"] in
+        let%lwt () = Oca_lib.write_line fd base_dockerfile in
+        let%lwt () = Lwt_unix.close fd in
+        begin match%lwt proc with
+        | Ok () ->
+            let%lwt volumes =
+              Lwt_list.fold_left_s (fun acc (volume, path, init) ->
+                let volume = ["--volume";volume^":"^path] in
+                match%lwt Oca_lib.exec ~stdin:`Close ~stdout ~stderr:stdout (["docker";"run";"--rm"]@volume@[tag;"sh";"-c";init]) with
+                | Ok () -> Lwt.return (acc @ volume)
+                | Error () -> failwith "volume creation failed"
+              ) [] (volumes ~conf)
+            in
+            Docker_img_hashtbl.add docker_img_hashtbl base_dockerfile tag;
+            Lwt.return (tag, volumes)
+        | Error () -> failwith "docker build failed"
+        end
+    | Some tag ->
+        let volumes =
+          List.fold_left (fun acc (volume, path, _init) ->
+            acc @ ["--volume";volume^":"^path]
+          ) [] (volumes ~conf)
         in
-        let%lwt () = tail job 0L in
-        match%lwt Cluster_api.Job.result job with
-        | Ok _ ->
-            Lwt.return (Ok ())
-        | Error (`Capnp e) ->
-            let%lwt () = Lwt_io.write stdout (Fmt.str "%a" Capnp_rpc.Error.pp e) in
-            Lwt.return (Error ())
-      in
-      let timeout =
-        let hours = Server_configfile.job_timeout conf in
-        let%lwt () = Lwt_unix.sleep (hours *. 60.0 *. 60.0) in
-        let cancel =
-          let%lwt cancel_result = Cluster_api.Job.cancel job in
-          let%lwt () = Lwt_io.write_line stdout ("+++ Timeout!! ("^string_of_float hours^" hours) +++") in
-          match cancel_result with
-          | Ok () ->
-              Lwt_io.write_line stdout "+++ Job cancelled +++"
-          | Error (`Capnp err) ->
-              Lwt_io.write_line stdout (Fmt.str "+++ Could not cancel job: %a +++" Capnp_rpc.Error.pp err)
-        in
-        let timeout =
-          let minute = 1 in
-          let%lwt () = Lwt_unix.sleep (float_of_int (minute * 60)) in
-          Lwt_io.write_line stdout "+++ Cancellation failed +++"
-        in
-        let%lwt () = Lwt.pick [cancel; timeout] in
-        let%lwt () = Lwt_io.write_line stderr ("Command '"^c^"' timed-out ("^string_of_float hours^" hours).") in
-        Lwt.return (Error ())
-      in
-      Lwt.pick [timeout; proc]
-  | Error {Capnp_rpc.Exception.reason; _} ->
-      let%lwt () = Lwt_io.write_line stderr ("capnp-rpc failed to settle: "^reason) in
-      Lwt.return (Error ())
+        Lwt.return (tag, volumes)
+  in
+  let stdin, fd = Lwt_unix.pipe () in
+  let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
+  Lwt_unix.set_close_on_exec fd;
+  let proc = Oca_lib.exec ~stdin ~stdout ~stderr:stdout (["docker";"run";"--rm";"--network=none"]@volumes@["-i";tag]) in
+  let%lwt () = Oca_lib.write_line fd cmd in
+  let%lwt () = Lwt_unix.close fd in
+  proc
 
 let exec_out ~fexec ~fout =
-  let stdin, stdout = Lwt_io.pipe () in
-  let proc = (fexec ~stdout) [%lwt.finally Lwt_io.close stdout] in
+  let stdin, stdout = Lwt_unix.pipe () in
+  let proc = (fexec ~stdout) [%lwt.finally Lwt_unix.close stdout] in
   let%lwt res = fout ~stdin in
-  let%lwt () = Lwt_io.close stdin in
+  let%lwt () = Lwt_unix.close stdin in
   let%lwt r = proc in
   Lwt.return (r, res)
 
-let ocluster_build_str ~important ~debug ~cap ~conf ~base_obuilder ~stderr ~default c =
+let docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default c =
   let rec aux ~stdin =
-    let%lwt line = Lwt_io.read_line_opt stdin in
-    match line with
+    (* TODO: Use --progress=rawjson whenever it's available *)
+    match%lwt Oca_lib.read_line_opt stdin with
     | Some "@@@OUTPUT" ->
         let rec aux acc =
-          match%lwt Lwt_io.read_line_opt stdin with
+          match%lwt Oca_lib.read_line_opt stdin with
           | Some "@@@OUTPUT" -> Lwt.return (List.rev acc)
           | Some x -> aux (x :: acc)
-          | None when important -> Lwt.fail (Failure "Error: Closing @@@OUTPUT could not be detected")
-          | None ->
-              let%lwt () = Lwt_io.write_line stderr "Error: Closing @@@OUTPUT could not be detected" in
-              Lwt.return_nil
+          | None -> Lwt.fail (Failure "Error: Closing @@@OUTPUT could not be detected")
         in
         aux []
     | Some line ->
-        let%lwt () = (if debug then Lwt_io.write_line stderr line else Lwt.return_unit) in
+        let%lwt () = (if debug then Oca_lib.write_line stderr line else Lwt.return_unit) in
         aux ~stdin
     | None -> Lwt.return_nil
   in
   match%lwt
     exec_out ~fout:aux ~fexec:(fun ~stdout ->
-      ocluster_build ~cap ~conf ~base_obuilder ~stdout ~stderr ("echo @@@OUTPUT && "^c^" && echo @@@OUTPUT")
+      docker_build ~conf ~base_dockerfile ~stdout (fmt "echo '%f' > /dev/null && echo @@@OUTPUT && %s && echo @@@OUTPUT" (Unix.time ()) c)
     )
   with
   | (Ok (), r) ->
       Lwt.return r
   | (Error (), _) ->
       match default with
-      | None -> Lwt.fail (Failure ("Failure in ocluster: "^c)) (* TODO: Replace this with "send message to debug slack webhook" *)
+      | None -> Lwt.fail (Failure ("Failure in docker: "^c)) (* TODO: Replace this with "send message to debug slack webhook" *)
       | Some v -> Lwt.return v
 
 let failure_kind conf ~pkg logfile =
@@ -149,16 +156,12 @@ let failure_kind conf ~pkg logfile =
     lookup `Other
   end
 
-let with_test pkg = {|
-if [ $res = 0 ]; then
-    opam remove -y "|}^pkg^{|"
-    opam install -vty "|}^pkg^{|"
-    res=$?
-    if [ $res = 20 ]; then
-        res=0
-    fi
-fi
-|}
+let with_test pkg = fmt {|
+test $res != 0 && exit $res
+opam reinstall -j1 -vty '%s'
+res=$?
+test $res = 20 && res=0
+|} pkg
 
 let with_test ~conf pkg =
   if Server_configfile.with_test conf then
@@ -166,13 +169,11 @@ let with_test ~conf pkg =
   else
     ""
 
-let with_lower_bound pkg = {|
-if [ $res = 0 ]; then
-    opam remove -y "|}^pkg^{|"
-    env OPAMCRITERIA="+removed,+count[version-lag,solution]" opam install -vy "|}^pkg^{|"
-    res=$?
-fi
-|}
+let with_lower_bound pkg = fmt {|
+test $res != 0 && exit $res
+env 'OPAMCRITERIA=+removed,+count[version-lag,solution]' opam reinstall -j1 -vy '%s'
+res=$?
+|} pkg
 
 let with_lower_bound ~conf pkg =
   if Server_configfile.with_lower_bound conf then
@@ -180,47 +181,49 @@ let with_lower_bound ~conf pkg =
   else
     ""
 
-let run_script ~conf pkg = {|
-opam remove -y "|}^pkg^{|"
-opam install -vy "|}^pkg^{|"
+let run_script ~conf pkg = fmt {|
+opam install -j1 -vy '%s'
 res=$?
-if [ $res = 31 ]; then
-    if opam show -f x-ci-accept-failures: "|}^pkg^{|" | grep -q '"|}^Server_configfile.platform_distribution conf^{|"'; then
-        echo "This package failed and has been disabled for CI using the 'x-ci-accept-failures' field."
-        exit 69
+if test $res = 31 ; then
+  for pkg in $(ls "$(opam var prefix)/.opam-switch/build") ; do
+    if opam show -f x-ci-accept-failures: "$pkg" | grep -qF '"%s"' ; then
+      echo "A package failed and has been disabled for CI using the 'x-ci-accept-failures' field."
     fi
+    test "$pkg" != '%s' && partial="$partial $pkg"
+  done
+  test "$partial" != "" && echo "opam-health-check detected dependencies failing: $partial"
 fi
-|}^with_test ~conf pkg^{|
-|}^with_lower_bound ~conf pkg^{|
+%s
+%s
 exit $res
-|}
+|} pkg (Server_configfile.platform_distribution conf) pkg (with_test ~conf pkg) (with_lower_bound ~conf pkg)
 
-let run_job ~cap ~conf ~pool ~stderr ~base_obuilder ~switch ~num logdir pkg =
+let run_job ~conf ~pool ~stderr ~base_dockerfile ~switch ~num logdir pkg =
   Lwt_pool.use pool begin fun () ->
-    let%lwt () = Lwt_io.write_line stderr ("["^num^"] Checking "^pkg^" on "^Intf.Switch.switch switch^"…") in
+    let%lwt () = Oca_lib.write_line stderr ("["^num^"] Checking "^pkg^" on "^Intf.Switch.switch switch^"…") in
     let switch = Intf.Switch.name switch in
     let logfile = Server_workdirs.tmplogfile ~pkg ~switch logdir in
     match%lwt
-      Lwt_io.with_file ~flags:Unix.[O_WRONLY; O_CREAT; O_TRUNC] ~perm:0o640 ~mode:Lwt_io.Output (Fpath.to_string logfile) (fun stdout ->
-        ocluster_build ~cap ~conf ~base_obuilder ~stdout ~stderr (run_script ~conf pkg)
+      Oca_lib.with_file Unix.[O_WRONLY; O_CREAT; O_TRUNC] 0o640 (Fpath.to_string logfile) (fun stdout ->
+        docker_build ~conf ~base_dockerfile ~stdout (run_script ~conf pkg)
       )
     with
     | Ok () ->
-        let%lwt () = Lwt_io.write_line stderr ("["^num^"] succeeded.") in
+        let%lwt () = Oca_lib.write_line stderr ("["^num^"] succeeded.") in
         Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpgoodlog ~pkg ~switch logdir))
     | Error () ->
         begin match%lwt failure_kind conf ~pkg logfile with
         | `Partial ->
-            let%lwt () = Lwt_io.write_line stderr ("["^num^"] finished with a partial failure.") in
+            let%lwt () = Oca_lib.write_line stderr ("["^num^"] finished with a partial failure.") in
             Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmppartiallog ~pkg ~switch logdir))
         | `Failure ->
-            let%lwt () = Lwt_io.write_line stderr ("["^num^"] failed.") in
+            let%lwt () = Oca_lib.write_line stderr ("["^num^"] failed.") in
             Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpbadlog ~pkg ~switch logdir))
         | `NotAvailable ->
-            let%lwt () = Lwt_io.write_line stderr ("["^num^"] finished with not available.") in
+            let%lwt () = Oca_lib.write_line stderr ("["^num^"] finished with not available.") in
             Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpnotavailablelog ~pkg ~switch logdir))
         | `Other | `AcceptFailures | `Timeout ->
-            let%lwt () = Lwt_io.write_line stderr ("["^num^"] finished with an internal failure.") in
+            let%lwt () = Oca_lib.write_line stderr ("["^num^"] finished with an internal failure.") in
             Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpinternalfailurelog ~pkg ~switch logdir))
         end
   end
@@ -232,7 +235,7 @@ let () =
     flush stderr;
   end
 
-let get_obuilder ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
+let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
   let extra_repos =
     let switch = Intf.Switch.name switch in
     List.filter (fun (repo, _) ->
@@ -241,11 +244,10 @@ let get_obuilder ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
       | Some for_switches -> List.exists (Intf.Compiler.equal switch) for_switches
     ) extra_repos
   in
-  let open Obuilder_spec in
-  let cache = cache ~conf in
+  let open! Dockerfile in
   let os = Server_configfile.platform_os conf in
   let distribution = Server_configfile.platform_distribution conf in
-  let from = match os with
+  let img = match os with
     | "linux" -> "ocaml/opam:"^distribution (* typically this is 'debian-unstable' which is 5.0.0 *)
     | "freebsd" -> distribution
     | "macos" -> "macos-"^distribution
@@ -257,66 +259,65 @@ let get_obuilder ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
     | "macos" -> "ln -f ~/local/bin/opam-dev ~/local/bin/opam"
     | os -> failwith ("OS '"^os^"' not supported")
   in
-  let opam_init_options = match os with
-    | "linux" -> " --config ~/.opamrc-sandbox"
-    | "freebsd"
-    | "macos" -> ""
-    | os -> failwith ("OS '"^os^"' not supported")
-  in
-  stage ~from begin
-    [ user_unix ~uid:1000 ~gid:1000;
-      env "OPAMPRECISETRACKING" "1"; (* NOTE: See https://github.com/ocaml/opam/issues/3997 *)
-      env "OPAMUTF8" "never"; (* Disable UTF-8 characters so that output stay consistant accross platforms *)
-      env "OPAMEXTERNALSOLVER" "builtin-0install";
-      env "OPAMCRITERIA" "+removed";
-      run "%s" ln_opam;
-      run ~network "rm -rf ~/opam-repository && git clone -q '%s' ~/opam-repository && git -C ~/opam-repository checkout -q %s" (Intf.Github.url opam_repo) opam_repo_commit;
-      run "rm -rf ~/.opam && opam init -ya --bare%s ~/opam-repository" opam_init_options;
-    ] @
-    List.flatten (
-      List.map (fun (repo, hash) ->
-        let name = Filename.quote (Intf.Repository.name repo) in
-        let url = Intf.Github.url (Intf.Repository.github repo) in
-        [ run ~network "git clone -q '%s' ~/%s && git -C ~/%s checkout -q %s" url name name hash;
-          run "opam repository add --dont-select %s ~/%s" name name;
-        ]
-      ) extra_repos
-    ) @ [
-      run ~cache ~network "opam switch create --repositories=%sdefault '%s' '%s'"
-        (List.fold_left (fun acc (repo, _) -> Intf.Repository.name repo^","^acc) "" extra_repos)
-        (Intf.Compiler.to_string (Intf.Switch.name switch))
-        (Intf.Switch.switch switch);
-      run ~network "opam update --depexts";
-    ] @
-    (* TODO: Should this be removed now that it is part of the base docker images? What about macOS? *)
-    (if OpamVersionCompare.compare (Intf.Switch.switch switch) "4.08" < 0 then
-       [run ~cache ~network "opam install -y ocaml-secondary-compiler"]
-       (* NOTE: See https://github.com/ocaml/opam-repository/pull/15404
-                and https://github.com/ocaml/opam-repository/pull/15642 *)
-     else
-       []
-    ) @
-    (match Server_configfile.extra_command conf with
-     | Some c -> [run ~cache ~network "%s" c]
-     | None -> []
-    ) @
-    (if Server_configfile.enable_dune_cache conf then
-       [ run ~cache ~network "opam pin add -k version dune $(opam show -f version dune)";
-         env "DUNE_CACHE" "enabled";
-         env "DUNE_CACHE_TRANSPORT" "direct";
-         env "DUNE_CACHE_DUPLICATION" "copy";
+  from img @@
+  user "%d:%d" uid gid @@
+  env [
+    "OPAMPRECISETRACKING", "1"; (* NOTE: See https://github.com/ocaml/opam/issues/3997 *)
+    "OPAMUTF8", "never"; (* Disable UTF-8 characters so that output stay consistant accross platforms *)
+    "OPAMEXTERNALSOLVER", "builtin-0install";
+    "OPAMCRITERIA", "+removed";
+  ] @@
+  run "%s" ln_opam @@
+  run ~network "rm -rf ~/opam-repository && git clone -q '%s' ~/opam-repository && git -C ~/opam-repository checkout -q %s" (Intf.Github.url opam_repo) opam_repo_commit @@
+  run "rm -rf ~/.opam && opam init -ya --bare ~/opam-repository" @@@
+  List.flatten (
+    List.map (fun (repo, hash) ->
+      let name = Filename.quote (Intf.Repository.name repo) in
+      let url = Intf.Github.url (Intf.Repository.github repo) in
+      [ run ~network "git clone -q '%s' ~/%s && git -C ~/%s checkout -q %s" url name name hash;
+        run "opam repository add --dont-select %s ~/%s" name name;
+      ]
+    ) extra_repos
+  ) @ [
+    run ~network "opam switch create --repositories=%sdefault '%s' '%s'"
+      (List.fold_left (fun acc (repo, _) -> Intf.Repository.name repo^","^acc) "" extra_repos)
+      (Intf.Compiler.to_string (Intf.Switch.name switch))
+      (Intf.Switch.switch switch);
+    run "opam list --available --installable --short --all-versions > ~/opam-packages.list";
+    run "opam list --depexts --available --installable --short --all-versions > ~/apt-packages.list";
+    run {|opam option --global 'archive-mirrors=["file:///home/opam/opam-cache"]'|};
+    run ~network {|sudo rm /etc/apt/apt.conf.d/docker-clean && (echo 'APT::Install-Recommends "false";' && echo 'Debug::NoLocking "true";') | sudo tee -a /etc/apt/apt.conf && opam update --depexts|};
+  ] @
+  (* TODO: Should this be removed now that it is part of the base docker images? What about macOS? *)
+  (if OpamVersionCompare.compare (Intf.Switch.switch switch) "4.08" < 0 then
+     [run ~network "opam install -y ocaml-secondary-compiler"]
+     (* NOTE: See https://github.com/ocaml/opam-repository/pull/15404
+        and https://github.com/ocaml/opam-repository/pull/15642 *)
+   else
+     []
+  ) @
+  (match Server_configfile.extra_command conf with
+   | Some c -> [run ~network "%s" c]
+   | None -> []
+  ) @
+  (if Server_configfile.enable_dune_cache conf then
+     [ run ~network "opam pin add -k version dune $(opam show -f version dune)";
+       env [
+         "DUNE_CACHE", "enabled";
+         "DUNE_CACHE_TRANSPORT", "direct";
+         "DUNE_CACHE_STORAGE_MODE", "copy";
        ]
-     else
-       []
-    ) @ [
-      env "OCAMLPARAM" "warn-error=+8,_"; (* https://github.com/ocaml/ocaml/issues/12475 *)
-    ]
-  end
+     ]
+   else
+     []
+  ) @ [
+    env ["OCAMLPARAM", "warn-error=+8,_"]; (* https://github.com/ocaml/ocaml/issues/12475 *)
+  ]
 
-let get_pkgs ~debug ~cap ~conf ~stderr (switch, base_obuilder) =
+let get_pkgs ~debug ~conf ~stderr (switch, base_dockerfile) =
   let switch = Intf.Compiler.to_string (Intf.Switch.name switch) in
-  let%lwt () = Lwt_io.write_line stderr ("Getting packages list for "^switch^"… (this may take an hour or two)") in
-  let%lwt pkgs = ocluster_build_str ~important:true ~debug ~cap ~conf ~base_obuilder ~stderr ~default:None (Server_configfile.list_command conf) in
+  let%lwt () = Oca_lib.write_line stderr ("Getting packages list for "^switch^"… (this may take an hour or two)") in
+  let%lwt pkgs = docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:None (Server_configfile.list_command conf) in
   let pkgs = List.filter begin fun pkg ->
     Oca_lib.is_valid_filename pkg &&
     match Intf.Pkg.name (Intf.Pkg.create ~full_name:pkg ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) with (* TODO: Remove this horror *)
@@ -344,15 +345,13 @@ let get_pkgs ~debug ~cap ~conf ~stderr (switch, base_obuilder) =
     | _ -> true
   end pkgs in
   let nelts = string_of_int (List.length pkgs) in
-  let%lwt () = Lwt_io.write_line stderr ("Package list for "^switch^" retrieved. "^nelts^" elements to process.") in
+  let%lwt () = Oca_lib.write_line stderr ("Package list for "^switch^" retrieved. "^nelts^" elements to process.") in
   Lwt.return pkgs
 
 let with_stderr ~start_time workdir f =
   let%lwt () = Oca_lib.mkdir_p (Server_workdirs.ilogdir workdir) in
   let logfile = Server_workdirs.new_ilogfile ~start_time workdir in
-  Lwt_io.with_file ~flags:Unix.[O_WRONLY; O_CREAT; O_APPEND] ~perm:0o640 ~mode:Lwt_io.Output (Fpath.to_string logfile) begin fun stderr ->
-    f ~stderr
-  end
+  Oca_lib.with_file Unix.[O_WRONLY; O_CREAT; O_APPEND] 0o640 (Fpath.to_string logfile) (fun stderr -> f ~stderr)
 
 module Pkg_set = Set.Make (String)
 
@@ -361,9 +360,9 @@ let revdeps_script pkg =
   {|opam list --color=never -s --recursive --depopts --depends-on |}^pkg^{| && \
     opam list --color=never -s --with-test --with-doc --depopts --depends-on |}^pkg
 
-let get_metadata ~debug ~jobs ~cap ~conf ~pool ~stderr logdir (_, base_obuilder) pkgs =
-  let get_revdeps ~base_obuilder ~pkgname ~pkg ~logdir =
-    let%lwt revdeps = ocluster_build_str ~important:false ~debug ~cap ~conf ~base_obuilder ~stderr ~default:(Some []) (revdeps_script pkg) in
+let get_metadata ~debug ~conf ~jobs ~pool ~stderr logdir (_, base_dockerfile) pkgs =
+  let get_revdeps ~base_dockerfile ~pkgname ~pkg ~logdir =
+    let%lwt revdeps = docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:(Some []) (revdeps_script pkg) in
     let module Set = Set.Make(String) in
     let revdeps = Set.of_list revdeps in
     let revdeps = Set.remove pkgname revdeps in (* https://github.com/ocaml/opam/issues/4446 *)
@@ -371,9 +370,9 @@ let get_metadata ~debug ~jobs ~cap ~conf ~pool ~stderr logdir (_, base_obuilder)
       Lwt_io.write c (string_of_int (Set.cardinal revdeps))
     )
   in
-  let get_latest_metadata ~base_obuilder ~pkgname ~logdir = (* TODO: Get this locally by merging all the repository and parsing the opam files using opam-core *)
+  let get_latest_metadata ~base_dockerfile ~pkgname ~logdir = (* TODO: Get this locally by merging all the repository and parsing the opam files using opam-core *)
     let%lwt opam =
-      ocluster_build_str ~important:false ~debug ~cap ~conf ~base_obuilder ~stderr ~default:(Some [])
+      docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:(Some [])
         ("opam show --raw "^Filename.quote pkgname)
     in
     Lwt_io.with_file ~mode:Lwt_io.output (Fpath.to_string (Server_workdirs.tmpopamfile ~pkg:pkgname logdir)) (fun c ->
@@ -384,9 +383,9 @@ let get_metadata ~debug ~jobs ~cap ~conf ~pool ~stderr logdir (_, base_obuilder)
     let pkgname = Intf.Pkg.name (Intf.Pkg.create ~full_name ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) in (* TODO: Remove this horror *)
     let job =
       Lwt_pool.use pool begin fun () ->
-        let%lwt () = Lwt_io.write_line stderr ("Getting metadata for "^full_name) in
-        let%lwt () = get_revdeps ~base_obuilder ~pkgname ~pkg:full_name ~logdir in
-        if Pkg_set.mem pkgname pkgs_set then Lwt.return_unit else get_latest_metadata ~base_obuilder ~pkgname ~logdir
+        let%lwt () = Oca_lib.write_line stderr ("Getting metadata for "^full_name) in
+        let%lwt () = get_revdeps ~base_dockerfile ~pkgname ~pkg:full_name ~logdir in
+        if Pkg_set.mem pkgname pkgs_set then Lwt.return_unit else get_latest_metadata ~base_dockerfile ~pkgname ~logdir
       end
     in
     (Pkg_set.add pkgname pkgs_set, job :: jobs)
@@ -433,16 +432,19 @@ let move_tmpdirs_to_final ~switches logdir workdir =
   let%lwt () = Lwt_unix.rename (Fpath.to_string tmpmetadatadir) (Fpath.to_string metadatadir) in
   Oca_lib.rm_rf tmpdir
 
-let run_jobs ~cap ~conf ~pool ~stderr logdir switches pkgs =
-  let len_suffix = "/"^string_of_int (Pkg_set.cardinal pkgs * List.length switches) in
-  Pkg_set.fold begin fun full_name (i, jobs) ->
-    List.fold_left begin fun (i, jobs) (switch, base_obuilder) ->
+let run_jobs ~conf ~pool ~stderr logdir switches pkgs =
+  (* NOTE: Randomize the list to avoid having several containers downloading the same archives at the same time *)
+  let pkgs = Pkg_set.to_list pkgs in
+  let pkgs = List.fast_sort (fun _ _ -> if Random.bool () then 1 else -1) pkgs in
+  let len_suffix = "/"^string_of_int (List.length pkgs * List.length switches) in
+  List.fold_left begin fun (i, jobs) full_name ->
+    List.fold_left begin fun (i, jobs) (switch, base_dockerfile) ->
       let i = succ i in
       let num = string_of_int i^len_suffix in
-      let job = run_job ~cap ~conf ~pool ~stderr ~base_obuilder ~switch ~num logdir full_name in
+      let job = run_job ~conf ~pool ~stderr ~base_dockerfile ~switch ~num logdir full_name in
       (i, job :: jobs)
     end (i, jobs) switches
-  end pkgs (0, [])
+  end (0, []) pkgs
 
 let trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf =
   let public_url = Server_configfile.public_url conf in
@@ -456,7 +458,7 @@ let trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf =
   in
   Server_configfile.slack_webhooks conf |>
   Lwt_list.iter_s begin fun webhook ->
-    let%lwt () = Lwt_io.write_line stderr ("Triggering Slack webhook "^Uri.to_string webhook) in
+    let%lwt () = Oca_lib.write_line stderr ("Triggering Slack webhook "^Uri.to_string webhook) in
     match%lwt
       Http_lwt_client.request
         ~config:(`HTTP_1_1 Httpaf.Config.default) (* TODO: Remove this when https://github.com/roburio/http-lwt-client/issues/7 is fixed *)
@@ -469,18 +471,9 @@ let trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf =
     | Ok ({Http_lwt_client.status = `OK; _}, _body) -> Lwt.return_unit
     | Ok (resp, body) ->
         let resp = Format.sprintf "%a" Http_lwt_client.pp_response resp in
-        Lwt_io.write_line stderr (fmt "Webhook returned failure: %s\nBody: %s" resp body)
-    | Error (`Msg msg) -> Lwt_io.write_line stderr ("Webhook failed with: "^msg)
+        Oca_lib.write_line stderr (fmt "Webhook returned failure: %s\nBody: %s" resp body)
+    | Error (`Msg msg) -> Oca_lib.write_line stderr ("Webhook failed with: "^msg)
   end
-
-let get_cap ~stderr ~cap_file =
-  let vat = Capnp_rpc_unix.client_only_vat () in
-  match Capnp_rpc_unix.Cap_file.load vat cap_file with
-  | Ok sr ->
-      Lwt.return sr
-  | Error (`Msg m) ->
-      let%lwt () = Lwt_io.write_line stderr (fmt "Cap file %S couldn't be loaded: %s" cap_file m) in
-      Lwt.fail (Failure "cap file not found")
 
 let run_locked = ref false
 
@@ -550,7 +543,7 @@ let update_docker_image conf =
       end
   | _ -> Lwt.fail (Failure (fmt "Image name '%s' is not valid" image))
 
-let run ~debug ~cap_file ~on_finished ~conf cache workdir =
+let run ~debug ~on_finished ~conf cache workdir =
   let switches = Option.get_exn_or "no switches" (Server_configfile.ocaml_switches conf) in
   if !run_locked then
     failwith "operation locked";
@@ -561,11 +554,16 @@ let run ~debug ~cap_file ~on_finished ~conf cache workdir =
       try%lwt
         let timer = Oca_lib.timer_start () in
         let%lwt () = update_docker_image conf in
-        let%lwt cap = get_cap ~stderr ~cap_file in
         let%lwt (opam_repo, opam_repo_commit) = get_commit_hash_default conf in
         let%lwt extra_repos = get_commit_hash_extra_repos conf in
+        (* TODO *)
+(*        let%lwt () =
+          match%lwt Oca_lib.exec ~stdin:`Close ~stdout:stderr ~stderr ["docker";"system";"prune";"-af"] with
+          | Ok () -> Lwt.return_unit
+          | Error () -> Lwt.fail (Failure "docker prune failed")
+          in *)
         let switches' = switches in
-        let switches = List.map (fun switch -> (switch, get_obuilder ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch)) switches in
+        let switches = List.map (fun switch -> (switch, get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch)) switches in
         begin match switches with
         | switch::_ ->
             let%lwt old_logdir = Oca_server.Cache.get_logdirs cache in
@@ -574,26 +572,25 @@ let run ~debug ~cap_file ~on_finished ~conf cache workdir =
             let new_logdir = Server_workdirs.new_logdir ~compressed ~hash:opam_repo_commit ~start_time workdir in
             let%lwt () = Server_workdirs.init_base_jobs ~switches:switches' new_logdir in
             let pool = Lwt_pool.create (Server_configfile.processes conf) (fun () -> Lwt.return_unit) in
-            let%lwt pkgs = Lwt_list.map_p (get_pkgs ~debug ~cap ~stderr ~conf) switches in
+            let%lwt pkgs = Lwt_list.map_s (get_pkgs ~debug ~stderr ~conf) switches in
             let pkgs = Pkg_set.of_list (List.concat pkgs) in
             let%lwt () = Oca_lib.timer_log timer stderr "Initialization" in
-            let (_, jobs) = run_jobs ~cap ~conf ~pool ~stderr new_logdir switches pkgs in
-            let (_, jobs) = get_metadata ~debug ~jobs ~cap ~conf ~pool ~stderr new_logdir switch pkgs in
+            let (_, jobs) = run_jobs ~conf ~pool ~stderr new_logdir switches pkgs in
+            let (_, jobs) = get_metadata ~debug ~conf ~jobs ~pool ~stderr new_logdir switch pkgs in
             let%lwt () = Lwt.join jobs in
             let%lwt () = Oca_lib.timer_log timer stderr "Operation" in
-            let%lwt () = Lwt_io.write_line stderr "Finishing up…" in
+            let%lwt () = Oca_lib.write_line stderr "Finishing up…" in
             let%lwt () = move_tmpdirs_to_final ~switches:switches' new_logdir workdir in
             let%lwt () = on_finished workdir in
             let%lwt () = trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf in
             Oca_lib.timer_log timer stderr "Clean up"
         | [] ->
-            Lwt_io.write_line stderr "No switches."
+            Oca_lib.write_line stderr "No switches."
         end
       with
       | exc ->
-          let%lwt () = Lwt_io.write_line stderr ("Exception: "^Printexc.to_string exc^".") in
-          let%lwt () = Lwt_io.write stderr (Printexc.get_backtrace ()) in
-          let%lwt () = Lwt_io.flush stderr in
+          let%lwt () = Oca_lib.write_line stderr ("Exception: "^Printexc.to_string exc^".") in
+          let%lwt () = Oca_lib.write stderr (Printexc.get_backtrace ()) in
           Lwt.return (prerr_endline "The current run failed unexpectedly. Please check the latest log using: opam-health-check log")
     end
   end (fun () -> run_locked := false; Lwt.return_unit) end;
