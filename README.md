@@ -1,12 +1,12 @@
-### How to install opam-health-check:
+### How to install opam-health-check-ng:
 
 ```
-$ opam pin add opam-health-check .
+$ opam pin add opam-health-check-ng .
 ```
 
-### How to use opam-health-check locally:
+### How to use opam-health-check-ng locally:
 
-For opam-health-check to work you need to start the server like so:
+For opam-health-check-ng to work you need to start the server like so:
 ```
 $ opam-health-serve --debug "$workdir"
 ```
@@ -38,7 +38,7 @@ a significant amount of RAM (around 25GB for a 32 core system) so it is recommen
 twice the amount of RAM you have of CPU cores activated by `opam-health-check` through the `processes`
 configuration option.
 
-### How to use opam-health-check remotely:
+### How to use opam-health-check-ng remotely:
 
 As with local opam-health-check you need to have a server started somewhere and accessible.
 Don't forget to open the admin and http ports. Default ports are respectively 6666 and 8080.
@@ -69,7 +69,7 @@ You should make sure no instance of `opam-health-serve` is running before editin
 
 Overall this takes a while. You can run `opam-health-check log` to follow the progress. Once it's done, you can visit `http://localhost:port` (where `port` is set in your `config.yaml`) to visualize the results.
 
-**Can I use opam-health-check to build packages on a custom compiler switch?**
+**Can I use opam-health-check-ng to build packages on a custom compiler switch?**
 
 Sure, to do that, you need to fork [opam-repository](https://github.com/ocaml/opam-repository/), add your compiler switch to it, and point to your forked repository in the `extra-repositories` field of the `config.yaml` file. E.g.:
 
