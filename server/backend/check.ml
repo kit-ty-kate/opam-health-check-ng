@@ -1,4 +1,5 @@
 let fmt = Printf.sprintf
+let ( // ) = Filename.concat
 
 (* UID/GID of the user "opam" in the ocaml/opam images *)
 let uid = 1000
@@ -41,10 +42,11 @@ for pkg in $(cat ~/apt-packages.list) ; do
 done|}
   in
   let dune_cache_init = "sudo chown opam:opam /home/opam/.cache/dune" in
-  ("opam-archives-cache", "/home/opam/opam-cache", opam_packages_init) ::
-  ("opam-apt-cache", "/var/cache/apt/archives", apt_packages_init) ::
+  let xdg_cache_home x = XDGBaseDir.(default.cache_home) // "opam-health-check" // x in
+  (xdg_cache_home "opam-archives-cache", "/home/opam/opam-cache", opam_packages_init) ::
+  (xdg_cache_home "opam-apt-cache", "/var/cache/apt/archives", apt_packages_init) ::
   if Server_configfile.enable_dune_cache conf
-  then [("opam-dune-cache", "/home/opam/.cache/dune", dune_cache_init)]
+  then [(xdg_cache_home "opam-dune-cache", "/home/opam/.cache/dune", dune_cache_init)]
   else []
 
 let network = `Default
