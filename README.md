@@ -8,14 +8,14 @@ $ opam pin add opam-health-check .
 
 For opam-health-check to work you need to start the server like so:
 ```
-$ opam-health-serve --connect "$ocluster_cap" "$workdir"
+$ opam-health-serve --debug "$workdir"
 ```
 For instance:
 ```
 $ workdir=/tmp/opam-health-check
-$ ocluster_cap="$HOME/ocluster.cap"
-$ opam-health-serve --connect "$ocluster_cap" "$workdir"
+$ opam-health-serve --debug "$workdir"
 ```
+`--debug` is optional but recommended to start with.
 
 Now simply use the `opam-health-check` command. First you need to initialize it like so:
 ```
@@ -25,25 +25,18 @@ $ opam-health-check init --from-local-workdir "$workdir"
 Now you can send any command to the server using the `opam-health-check` command.
 All subcommands may be listed with `opam-health-check --help`
 
-### OCluster capability file
+### Maximizing performance:
 
-opam-health-check now uses OCluster for its daily use. This means you need
-access to an OCluster instance with its dedicated capability file, which is
-given to the server through the `--connect` option.
-
-To set this up locally, you will need to get run the OCluster scheduler and one or more workers. The
-sequence of steps is:
-
-1. Run the OCluster scheduler probably with the public address `tcp:127.0.0.1:9000`.
-2. Use the OCluster admin command to generate the submission capability for
-   opam-health-check, it will most likely be something like
-   ```
-   $ ocluster-admin add-client --connect ./capnp-secrets/admin.cap opam-health-check > ~/ocluster.cap`.
-   ```
-3. Add a new worker to the pool you are using.
-4. Run `opam-health-serve`.
-5. Initialise `opam-health-check` as described above, add some opam switches and
-   then run the checks.
+To maximize performance you can set `enable-dune-cache: true` in `config.yaml` as well as
+mount `/var/lib/docker` as `tmpfs`. To do so, add the following line to your `/etc/fstab`:
+```
+tmpfs	/var/lib/docker	tmpfs	nosuid,nodev,size=80%	0	0
+```
+Keep in mind that `enable-dune-cache: true` will use a significant amount of disk space (hundreds of GB)
+off of `XDG_CACHE_HOME` (by default: `$HOME/.cache`) and mounting `/var/lib/docker` as `tmpfs` requires
+a significant amount of RAM (around 25GB for a 32 core system) so it is recommended to have at least
+twice the amount of RAM you have of CPU cores activated by `opam-health-check` through the `processes`
+configuration option.
 
 ### How to use opam-health-check remotely:
 
