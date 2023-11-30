@@ -6,6 +6,14 @@ $ opam pin add opam-health-check-ng .
 
 ### How to use opam-health-check-ng locally:
 
+Prerequisites:
+- A linux machine
+- Docker with buildx enabled
+- ugrep
+- Recommended: tmux
+- Recommended for monitoring: btop, htop, lm-sensors
+- the rest is installed by opam during installation
+
 For opam-health-check-ng to work you need to start the server like so:
 ```
 $ opam-health-serve --debug "$workdir"
