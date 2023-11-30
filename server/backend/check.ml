@@ -129,7 +129,7 @@ let docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default c =
       Lwt.return r
   | (Error (), _) ->
       match default with
-      | None -> Lwt.fail (Failure ("Failure in ocluster: "^c)) (* TODO: Replace this with "send message to debug slack webhook" *)
+      | None -> Lwt.fail (Failure ("Failure in docker: "^c)) (* TODO: Replace this with "send message to debug slack webhook" *)
       | Some v -> Lwt.return v
 
 let failure_kind conf ~pkg logfile =
