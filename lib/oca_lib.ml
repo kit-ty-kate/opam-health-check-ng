@@ -151,7 +151,7 @@ let ugrep_tpxz ~switch ~regexp ~archive =
   let switch = Filename.quote switch in
   let regexp = Filename.quote regexp in
   let archive = Filename.quote (Fpath.to_string archive) in
-  pread ~timeout:60. ~exit1:[] ["sh"; "-c"; "pixz -x "^switch^" -i "^archive^" | ugrep -zl --format='%z%~' --regexp="^regexp] read_unordered_lines
+  pread ~timeout:60. ~exit1:[] ["sh"; "-c"; "pixz -i "^archive^" -x "^switch^" | ugrep -zl --format='%z%~' --regexp="^regexp] read_unordered_lines
 
 let mkdir_p dir =
   let rec aux base = function
