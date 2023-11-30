@@ -8,4 +8,4 @@
   (with-stdout-to config.ml
     (progn
       (echo "let name = {|opam-health-serve|}\n")
-      (echo "let version = {|%{version:opam-health-check}|}\n"))))
+      (echo "let version = {|%{version:opam-health-check-ng}|}\n"))))
