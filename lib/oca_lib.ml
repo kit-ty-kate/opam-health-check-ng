@@ -80,23 +80,35 @@ let with_file flags mode filename f =
   let%lwt fd = Lwt_unix.openfile filename flags mode in
   Lwt.finalize (fun () -> f fd) (fun () -> Lwt_unix.close fd)
 
-let exec ~stdin ~stdout ~stderr cmd =
+let exec ~timeout ~stdin ~stdout ~stderr cmd =
   let stdout = `FD_copy (Lwt_unix.unix_file_descr stdout) in
   let stderr = `FD_copy (Lwt_unix.unix_file_descr stderr) in
   (* TODO: maybe to factorize with pread below *)
-  Lwt_process.with_process_none ~stdin ~stdout ~stderr ("", Array.of_list cmd) (fun proc ->
-    match%lwt proc#close with
-    | Unix.WEXITED 0 ->
-        Lwt.return (Ok ())
-    | Unix.WEXITED n ->
-        let cmd = String.concat " " cmd in
-        prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^")");
-        Lwt.return (Error ())
-    | Unix.WSIGNALED n | Unix.WSTOPPED n ->
-        let cmd = String.concat " " cmd in
-        prerr_endline ("Command '"^cmd^"' killed by a signal (n°"^string_of_int n^")");
-        Lwt.return (Error ())
-  )
+  let proc =
+    Lwt_process.with_process_none ~stdin ~stdout ~stderr ("", Array.of_list cmd) (fun proc ->
+      match%lwt proc#close with
+      | Unix.WEXITED 0 ->
+          Lwt.return (Ok ())
+      | Unix.WEXITED n ->
+          let cmd = String.concat " " cmd in
+          prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^")");
+          Lwt.return (Error ())
+      | Unix.WSIGNALED n | Unix.WSTOPPED n ->
+          let cmd = String.concat " " cmd in
+          prerr_endline ("Command '"^cmd^"' killed by a signal (n°"^string_of_int n^")");
+          Lwt.return (Error ())
+    )
+  in
+  (* NOTE: e.g. any processes shouldn't take more than 2 hours *)
+  let timeout =
+    let hours = timeout in
+    let%lwt () = Lwt_unix.sleep (hours *. 60.0 *. 60.0) in
+    let cmd = String.concat " " cmd in
+    (* TODO: show errors properly in stderr and on the debug console (same for the errors above) *)
+    prerr_endline ("Command '"^cmd^"' timed-out ("^string_of_float hours^" hours)");
+    Lwt.return (Error ())
+  in
+  Lwt.pick [timeout; proc]
 
 let pread ?cwd ?exit1 ~timeout cmd f =
   Lwt_process.with_process_in ?cwd ~timeout ~stdin:`Close ("", Array.of_list cmd) begin fun proc ->

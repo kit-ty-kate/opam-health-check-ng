@@ -16,6 +16,7 @@ val with_file :
   'a Lwt.t
 
 val exec :
+  timeout:float ->
   stdin:Lwt_process.redirection ->
   stdout:Lwt_unix.file_descr ->
   stderr:Lwt_unix.file_descr ->

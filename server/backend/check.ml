@@ -56,6 +56,7 @@ let docker_img_hashtbl = Docker_img_hashtbl.create 1
 
 let docker_build ~conf ~base_dockerfile ~stdout cmd =
   let base_dockerfile = Format.sprintf "%a" Dockerfile.pp base_dockerfile in
+  let timeout = Server_configfile.job_timeout conf in
   let%lwt tag, volumes =
     match Docker_img_hashtbl.find_opt docker_img_hashtbl base_dockerfile with
     | None ->
@@ -64,7 +65,7 @@ let docker_build ~conf ~base_dockerfile ~stdout cmd =
         let stdin, fd = Lwt_unix.pipe () in
         let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
         Lwt_unix.set_close_on_exec fd;
-        let proc = Oca_lib.exec ~stdin ~stdout ~stderr:stdout ["docker";"buildx";"build";"--progress=plain";"-t";tag;"-"] in
+        let proc = Oca_lib.exec ~timeout ~stdin ~stdout ~stderr:stdout ["docker";"buildx";"build";"--progress=plain";"-t";tag;"-"] in
         let%lwt () = Oca_lib.write_line fd base_dockerfile in
         let%lwt () = Lwt_unix.close fd in
         begin match%lwt proc with
@@ -72,7 +73,7 @@ let docker_build ~conf ~base_dockerfile ~stdout cmd =
             let%lwt volumes =
               Lwt_list.fold_left_s (fun acc (volume, path, init) ->
                 let volume = ["--volume";volume^":"^path] in
-                match%lwt Oca_lib.exec ~stdin:`Close ~stdout ~stderr:stdout (["docker";"run";"--rm"]@volume@[tag;"sh";"-c";init]) with
+                match%lwt Oca_lib.exec ~timeout ~stdin:`Close ~stdout ~stderr:stdout (["docker";"run";"--rm"]@volume@[tag;"sh";"-c";init]) with
                 | Ok () -> Lwt.return (acc @ volume)
                 | Error () -> failwith "volume creation failed"
               ) [] (volumes ~conf)
@@ -92,7 +93,7 @@ let docker_build ~conf ~base_dockerfile ~stdout cmd =
   let stdin, fd = Lwt_unix.pipe () in
   let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
   Lwt_unix.set_close_on_exec fd;
-  let proc = Oca_lib.exec ~stdin ~stdout ~stderr:stdout (["docker";"run";"--rm";"--network=none"]@volumes@["-i";tag]) in
+  let proc = Oca_lib.exec ~timeout ~stdin ~stdout ~stderr:stdout (["docker";"run";"--rm";"--network=none"]@volumes@["-i";tag]) in
   let%lwt () = Oca_lib.write_line fd cmd in
   let%lwt () = Lwt_unix.close fd in
   proc
