@@ -8,6 +8,12 @@ val read_line_opt : Lwt_unix.file_descr -> string option Lwt.t
 val write : Lwt_unix.file_descr -> string -> unit Lwt.t
 val write_line : Lwt_unix.file_descr -> string -> unit Lwt.t
 
+val with_atomic_file_out :
+  ext:string ->
+  Fpath.t ->
+  (out_channel -> unit) ->
+  unit
+
 val with_file :
   Lwt_unix.open_flag list ->
   Lwt_unix.file_perm ->

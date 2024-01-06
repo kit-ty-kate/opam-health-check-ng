@@ -238,7 +238,7 @@ let set_defaults conf =
   if Option.is_none conf.job_timeout then
     conf.job_timeout <- Some 2.0; (* NOTE: 2 hours by default. TODO: Maybe move to 1 hour when the cluster is more stable *)
   let yaml = Yaml.to_string_exn (yaml_of_conf conf) in
-  IO.with_out (Fpath.to_string conf.yamlfile) (fun out -> output_string out yaml)
+  Oca_lib.with_atomic_file_out ~ext:"tmp" conf.yamlfile (fun out -> output_string out yaml)
 
 let set_auto_run_interval conf i =
   conf.auto_run_interval <- Some i;

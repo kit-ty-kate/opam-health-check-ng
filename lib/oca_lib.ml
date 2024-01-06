@@ -1,5 +1,10 @@
 let (//) = Fpath.(/)
 
+let with_atomic_file_out ~ext file f =
+  let tmp_file = Fpath.add_ext ext file in
+  IO.with_out (Fpath.to_string tmp_file) f;
+  Unix.rename (Fpath.to_string tmp_file) (Fpath.to_string file)
+
 let rec list_map_cube f = function
   | x::(_::_ as xs) -> List.map (f x) xs @ list_map_cube f xs
   | [_] | [] -> []
