@@ -18,10 +18,9 @@ let get_keyfile workdir username =
 let create_userkey workdir username =
   let keyfile = get_keyfile workdir username in
   let key = Mirage_crypto_pk.Rsa.generate ~bits:2048 () in
-  let key = Mirage_crypto_pk.Rsa.sexp_of_priv key in
-  let key = Sexplib.Sexp.to_string key in
+  let key_pem = X509.Private_key.encode_pem (`RSA key) in
   with_file_out ~flags:[Unix.O_EXCL] (Fpath.to_string keyfile) begin fun chan ->
-    Lwt_io.write_line chan key
+    Lwt_io.write_line chan (Cstruct.to_string key_pem)
   end
 
 let create_admin_key workdir =
@@ -126,7 +125,11 @@ let is_bzero = function
 let get_user_key workdir user =
   let keyfile = get_keyfile workdir user in
   let%lwt key = Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string keyfile) (Lwt_io.read ?count:None) in
-  Lwt.return (Mirage_crypto_pk.Rsa.priv_of_sexp (Sexplib.Sexp.of_string key))
+  Lwt.return
+    (match X509.Private_key.decode_pem (Cstruct.of_string key) with
+     | Ok `RSA key -> key
+     | Ok _ -> failwith "unsupported key type, only RSA supported"
+     | Error `Msg m -> failwith ("error decoding key for " ^ user ^ " (must be in PEM format): " ^ m))
 
 let partial_decrypt key msg =
   Cstruct.to_string (Mirage_crypto_pk.Rsa.decrypt ~key (Cstruct.of_string msg))

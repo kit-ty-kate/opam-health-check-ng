@@ -1,6 +1,11 @@
-let parse_key key =
-  let key = IO.with_in (Fpath.to_string key) (IO.read_all ?size:None) in
-  let key = Mirage_crypto_pk.Rsa.priv_of_sexp (Sexplib.Sexp.of_string key) in
+let parse_key file =
+  let key = IO.with_in (Fpath.to_string file) (IO.read_all ?size:None) in
+  let key =
+    match X509.Private_key.decode_pem (Cstruct.of_string key) with
+    | Ok `RSA key -> key
+    | Ok _ -> failwith "unsupported key type, only RSA supported"
+    | Error `Msg m -> failwith ("error decoding key " ^ Fpath.to_string file ^ " (must be in PEM format): " ^ m)
+  in
   Mirage_crypto_pk.Rsa.pub_of_priv key
 
 let partial_encrypt key msg =
