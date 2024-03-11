@@ -55,7 +55,7 @@ let network = `Default
 module Docker_img_hashtbl = Hashtbl.Make (String)
 let docker_img_hashtbl = Docker_img_hashtbl.create 1
 
-let docker_build ~conf ~base_dockerfile ~stdout cmd =
+let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
   let base_dockerfile = Format.sprintf "%a" Dockerfile.pp base_dockerfile in
   let timeout = Server_configfile.job_timeout conf in
   let%lwt tag, volumes =
@@ -74,7 +74,7 @@ let docker_build ~conf ~base_dockerfile ~stdout cmd =
             let%lwt volumes =
               Lwt_list.fold_left_s (fun acc (volume, path, init) ->
                 let volume = ["--volume";volume^":"^path] in
-                match%lwt Oca_lib.exec ~timeout ~stdin:`Close ~stdout ~stderr:stdout (["docker";"run";"--rm"]@volume@[tag;"sh";"-c";init]) with
+                match%lwt Oca_lib.exec ~timeout ~stdin:`Close ~stdout ~stderr:stdout (["docker";"run";"--memory";max_ram_per_job;"--rm"]@volume@[tag;"sh";"-c";init]) with
                 | Ok () -> Lwt.return (acc @ volume)
                 | Error () -> failwith "volume creation failed"
               ) [] (volumes ~conf)
@@ -94,7 +94,7 @@ let docker_build ~conf ~base_dockerfile ~stdout cmd =
   let stdin, fd = Lwt_unix.pipe () in
   let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
   Lwt_unix.set_close_on_exec fd;
-  let proc = Oca_lib.exec ~timeout ~stdin ~stdout ~stderr:stdout (["docker";"run";"--rm";"--network=none"]@volumes@["-i";tag]) in
+  let proc = Oca_lib.exec ~timeout ~stdin ~stdout ~stderr:stdout (["docker";"run";"--rm";"--memory";max_ram_per_job;"--network=none"]@volumes@["-i";tag]) in
   let%lwt () = Oca_lib.write_line fd cmd in
   let%lwt () = Lwt_unix.close fd in
   proc
@@ -107,7 +107,7 @@ let exec_out ~fexec ~fout =
   let%lwt r = proc in
   Lwt.return (r, res)
 
-let docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default c =
+let docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~default c =
   let rec aux ~stdin =
     (* TODO: Use --progress=rawjson whenever it's available *)
     match%lwt Oca_lib.read_line_opt stdin with
@@ -126,7 +126,7 @@ let docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default c =
   in
   match%lwt
     exec_out ~fout:aux ~fexec:(fun ~stdout ->
-      docker_build ~conf ~base_dockerfile ~stdout (fmt "echo '%f' > /dev/null && echo @@@OUTPUT && %s && echo @@@OUTPUT" (Unix.time ()) c)
+      docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout (fmt "echo '%f' > /dev/null && echo @@@OUTPUT && %s && echo @@@OUTPUT" (Unix.time ()) c)
     )
   with
   | (Ok (), r) ->
@@ -202,14 +202,14 @@ fi
 exit $res
 |} pkg (Server_configfile.platform_distribution conf) pkg (with_test ~conf pkg) (with_lower_bound ~conf pkg)
 
-let run_job ~conf ~pool ~stderr ~base_dockerfile ~switch ~num logdir pkg =
+let run_job ~conf ~max_ram_per_job ~pool ~stderr ~base_dockerfile ~switch ~num logdir pkg =
   Lwt_pool.use pool begin fun () ->
     let%lwt () = Oca_lib.write_line stderr ("["^num^"] Checking "^pkg^" on "^Intf.Switch.switch switch^"…") in
     let switch = Intf.Switch.name switch in
     let logfile = Server_workdirs.tmplogfile ~pkg ~switch logdir in
     match%lwt
       Oca_lib.with_file Unix.[O_WRONLY; O_CREAT; O_TRUNC] 0o640 (Fpath.to_string logfile) (fun stdout ->
-        docker_build ~conf ~base_dockerfile ~stdout (run_script ~conf pkg)
+        docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout (run_script ~conf pkg)
       )
     with
     | Ok () ->
@@ -312,10 +312,10 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
     env ["OCAMLPARAM", "warn-error=+8,_"]; (* https://github.com/ocaml/ocaml/issues/12475 *)
   ]
 
-let get_pkgs ~debug ~conf ~stderr (switch, base_dockerfile) =
+let get_pkgs ~debug ~conf ~max_ram_per_job ~stderr (switch, base_dockerfile) =
   let switch = Intf.Compiler.to_string (Intf.Switch.name switch) in
   let%lwt () = Oca_lib.write_line stderr ("Getting packages list for "^switch^"… (this may take an hour or two)") in
-  let%lwt pkgs = docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:None (Server_configfile.list_command conf) in
+  let%lwt pkgs = docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~default:None (Server_configfile.list_command conf) in
   let pkgs = List.filter begin fun pkg ->
     Oca_lib.is_valid_filename pkg &&
     match Intf.Pkg.name (Intf.Pkg.create ~full_name:pkg ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) with (* TODO: Remove this horror *)
@@ -358,9 +358,9 @@ let revdeps_script pkg =
   {|opam list --color=never -s --recursive --depopts --depends-on |}^pkg^{| && \
     opam list --color=never -s --with-test --with-doc --depopts --depends-on |}^pkg
 
-let get_metadata ~debug ~conf ~jobs ~pool ~stderr logdir (_, base_dockerfile) pkgs =
+let get_metadata ~debug ~conf ~max_ram_per_job ~jobs ~pool ~stderr logdir (_, base_dockerfile) pkgs =
   let get_revdeps ~base_dockerfile ~pkgname ~pkg ~logdir =
-    let%lwt revdeps = docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:(Some []) (revdeps_script pkg) in
+    let%lwt revdeps = docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~default:(Some []) (revdeps_script pkg) in
     let module Set = Set.Make(String) in
     let revdeps = Set.of_list revdeps in
     let revdeps = Set.remove pkgname revdeps in (* https://github.com/ocaml/opam/issues/4446 *)
@@ -370,7 +370,7 @@ let get_metadata ~debug ~conf ~jobs ~pool ~stderr logdir (_, base_dockerfile) pk
   in
   let get_latest_metadata ~base_dockerfile ~pkgname ~logdir = (* TODO: Get this locally by merging all the repository and parsing the opam files using opam-core *)
     let%lwt opam =
-      docker_build_str ~debug ~conf ~base_dockerfile ~stderr ~default:(Some [])
+      docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~default:(Some [])
         ("opam show --raw "^Filename.quote pkgname)
     in
     Lwt_io.with_file ~mode:Lwt_io.output (Fpath.to_string (Server_workdirs.tmpopamfile ~pkg:pkgname logdir)) (fun c ->
@@ -430,7 +430,7 @@ let move_tmpdirs_to_final ~switches logdir workdir =
   let%lwt () = Lwt_unix.rename (Fpath.to_string tmpmetadatadir) (Fpath.to_string metadatadir) in
   Oca_lib.rm_rf tmpdir
 
-let run_jobs ~conf ~pool ~stderr logdir switches pkgs =
+let run_jobs ~conf ~max_ram_per_job ~pool ~stderr logdir switches pkgs =
   (* NOTE: Randomize the list to avoid having several containers downloading the same archives at the same time *)
   let pkgs = Pkg_set.to_list pkgs in
   let pkgs = List.fast_sort (fun _ _ -> if Random.bool () then 1 else -1) pkgs in
@@ -439,7 +439,7 @@ let run_jobs ~conf ~pool ~stderr logdir switches pkgs =
     List.fold_left begin fun (i, jobs) (switch, base_dockerfile) ->
       let i = succ i in
       let num = string_of_int i^len_suffix in
-      let job = run_job ~conf ~pool ~stderr ~base_dockerfile ~switch ~num logdir full_name in
+      let job = run_job ~conf ~max_ram_per_job ~pool ~stderr ~base_dockerfile ~switch ~num logdir full_name in
       (i, job :: jobs)
     end (i, jobs) switches
   end (0, []) pkgs
@@ -541,6 +541,12 @@ let update_docker_image conf =
       end
   | _ -> Lwt.fail (Failure (fmt "Image name '%s' is not valid" image))
 
+let get_max_ram_per_job ~number_of_jobs =
+  (* in Megabytes *)
+  let max_ram = (ExtUnix.All.sysinfo ()).ExtUnix.All.totalram / 1_000_000 in
+  let max_ram_per_job = max_ram / number_of_jobs in
+  string_of_int max_ram_per_job ^ "m"
+
 let run ~debug ~on_finished ~conf cache workdir =
   let switches = Option.get_exn_or "no switches" (Server_configfile.ocaml_switches conf) in
   if !run_locked then
@@ -569,12 +575,14 @@ let run ~debug ~on_finished ~conf cache workdir =
             let old_logdir = List.head_opt old_logdir in
             let new_logdir = Server_workdirs.new_logdir ~compressed ~hash:opam_repo_commit ~start_time workdir in
             let%lwt () = Server_workdirs.init_base_jobs ~switches:switches' new_logdir in
-            let pool = Lwt_pool.create (Server_configfile.processes conf) (fun () -> Lwt.return_unit) in
-            let%lwt pkgs = Lwt_list.map_s (get_pkgs ~debug ~stderr ~conf) switches in
+            let number_of_jobs = Server_configfile.processes conf in
+            let pool = Lwt_pool.create number_of_jobs (fun () -> Lwt.return_unit) in
+            let max_ram_per_job = get_max_ram_per_job ~number_of_jobs in
+            let%lwt pkgs = Lwt_list.map_s (get_pkgs ~debug ~max_ram_per_job ~stderr ~conf) switches in
             let pkgs = Pkg_set.of_list (List.concat pkgs) in
             let%lwt () = Oca_lib.timer_log timer stderr "Initialization" in
-            let (_, jobs) = run_jobs ~conf ~pool ~stderr new_logdir switches pkgs in
-            let (_, jobs) = get_metadata ~debug ~conf ~jobs ~pool ~stderr new_logdir switch pkgs in
+            let (_, jobs) = run_jobs ~conf ~max_ram_per_job ~pool ~stderr new_logdir switches pkgs in
+            let (_, jobs) = get_metadata ~debug ~conf ~max_ram_per_job ~jobs ~pool ~stderr new_logdir switch pkgs in
             let%lwt () = Lwt.join jobs in
             let%lwt () = Oca_lib.timer_log timer stderr "Operation" in
             let%lwt () = Oca_lib.write_line stderr "Finishing up…" in
