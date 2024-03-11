@@ -250,13 +250,7 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
   in
   let open! Dockerfile in
   let os = Server_configfile.platform_os conf in
-  let distribution = Server_configfile.platform_distribution conf in
-  let img = match os with
-    | "linux" -> "ocaml/opam:"^distribution (* typically this is 'debian-unstable' which is 5.0.0 *)
-    | "freebsd" -> distribution
-    | "macos" -> "macos-"^distribution
-    | os -> failwith ("OS '"^os^"' not supported") (* TODO: Should other platforms simply take the same ocurrent/opam: prefix? *)
-  in
+  let img = Server_configfile.platform_image conf in
   let ln_opam = match os with
     | "linux" -> "sudo ln -f /usr/bin/opam-dev /usr/bin/opam"
     | "freebsd" -> "sudo ln -f /usr/local/bin/opam-dev /usr/local/bin/opam"
