@@ -544,7 +544,15 @@ let update_docker_image conf =
 let get_max_ram_per_job ~number_of_jobs =
   (* in Megabytes *)
   let max_ram = (ExtUnix.All.sysinfo ()).ExtUnix.All.totalram / 1_000_000 in
-  let max_ram_per_job = max_ram / number_of_jobs in
+  let max_ram_per_job = Int.max (max_ram / number_of_jobs) 10 in
+  (* Makes sure every job can at least take 10G of RAM
+     as some setup mount /var/lib/docker as tmpfs and Docker takes
+     the amount of RAM taken by the image "disk" (minus the original image size,
+     because OverlayFS) into account too.
+     Building some packages can take 6GB+, ocamlopt can take 1GB,
+     opam takes 400MB+ and dune can take 300MB+, so 10GB is a nice
+     round number that should englobe most packages.
+     See https://github.com/ocaml/opam/issues/5884 *)
   string_of_int max_ram_per_job ^ "m"
 
 let run ~debug ~on_finished ~conf cache workdir =
