@@ -568,12 +568,12 @@ let run ~debug ~on_finished ~conf cache workdir =
         let%lwt () = update_docker_image conf in
         let%lwt (opam_repo, opam_repo_commit) = get_commit_hash_default conf in
         let%lwt extra_repos = get_commit_hash_extra_repos conf in
-        (* TODO *)
-(*        let%lwt () =
-          match%lwt Oca_lib.exec ~stdin:`Close ~stdout:stderr ~stderr ["docker";"system";"prune";"-af"] with
+        let%lwt () =
+          (* TODO: Add a mutex system to make sure nobody else is using docker at the same time (e.g. another opam-health-check instance) *)
+          match%lwt Oca_lib.exec ~timeout:1.0 ~stdin:`Close ~stdout:stderr ~stderr ["docker";"system";"prune";"-af"] with
           | Ok () -> Lwt.return_unit
-          | Error () -> Lwt.fail (Failure "docker prune failed")
-          in *)
+          | Error () -> raise (Failure "docker prune failed")
+        in
         let switches' = switches in
         let switches = List.map (fun switch -> (switch, get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch)) switches in
         begin match switches with
