@@ -544,7 +544,7 @@ let update_docker_image conf =
 let get_max_ram_per_job ~number_of_jobs =
   (* in Megabytes *)
   let max_ram = (ExtUnix.All.sysinfo ()).ExtUnix.All.totalram / 1_000_000 in
-  let max_ram_per_job = Int.max (max_ram / number_of_jobs) 10 in
+  let max_ram_per_job = Int.max (max_ram / number_of_jobs) 10_000 in
   (* Makes sure every job can at least take 10G of RAM
      as some setup mount /var/lib/docker as tmpfs and Docker takes
      the amount of RAM taken by the image "disk" (minus the original image size,
