@@ -116,7 +116,7 @@ let docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~def
           match%lwt Oca_lib.read_line_opt stdin with
           | Some "@@@OUTPUT" -> Lwt.return (List.rev acc)
           | Some x -> aux (x :: acc)
-          | None -> Lwt.fail (Failure "Error: Closing @@@OUTPUT could not be detected")
+          | None -> prerr_endline (fmt "Error: Closing @@@OUTPUT could not be detected for command '%s'" c); Lwt.return []
         in
         aux []
     | Some line ->
