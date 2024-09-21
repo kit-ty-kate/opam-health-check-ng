@@ -19,21 +19,20 @@ let rec encrypt_msg ~key msg =
     let msg, next = String.take_drop max_size msg in
     partial_encrypt key msg ^ encrypt_msg ~key next
 
-let print_body body =
-  let stream = Cohttp_lwt.Body.to_stream body in
-  let%lwt () = Lwt_stream.iter (fun s -> print_string s; flush stdout) stream in
-  Lwt.return (print_newline ())
+let print_partial_body body =
+  print_string body;
+  flush stdout
 
-let process_response (res, body) =
-  match Cohttp.Response.status res with
+let process_response res =
+  match res.Httpcats.status with
   | `OK ->
-      print_body body
+      print_newline ();
   | `Upgrade_required ->
-      let%lwt () = print_body body in
-      Lwt.fail Exit
+      print_newline ();
+      raise Exit
   | _ ->
       print_endline "A problem occured";
-      Lwt.fail Exit
+      raise Exit
 
 let send_msg ~profilename ~confdir ~conffile msg =
   let conf = Configfile.from_file ~confdir conffile in
@@ -49,10 +48,16 @@ let send_msg ~profilename ~confdir ~conffile msg =
   let uri = Uri.make ~scheme:"http" ~host:hostname ~port () in
   let prefix = Oca_lib.protocol_version^"\n"^prefix in
   print_endline "Sending command…";
-  Lwt_main.run begin
-    let%lwt resp = Cohttp_lwt_unix.Client.post ~body:(`String (prefix^msg)) uri in
-    process_response resp
-  end
+  match
+    Httpcats.request ~meth:`POST ~body:(Httpcats.String (prefix^msg))
+      ~uri:(Uri.to_string uri)
+      ~f:(fun _ res () body ->
+        match res.Httpcats.status, body with
+        | (`OK | `Upgrade_required), Some x -> print_partial_body x
+        | _, None | _, _ -> ()) ()
+  with
+  | Ok (resp, ()) -> process_response resp
+  | Error _ -> raise Not_found (* TODO *)
 
 let set_auto_run_interval ~confdir ~conffile profilename i =
   send_msg ~profilename ~confdir ~conffile ["set-auto-run-interval"; i]
