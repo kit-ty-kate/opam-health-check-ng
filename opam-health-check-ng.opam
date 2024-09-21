@@ -36,7 +36,6 @@ depends: [
   "github"
   "github-unix"
   "github-data"
-  "cstruct"
   "lwt"
   "lwt_ppx"
   "uri"

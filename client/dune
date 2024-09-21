@@ -13,7 +13,6 @@
     uri
     lwt
     lwt.unix
-    cstruct
     oca_lib
     cmdliner
     yaml))
