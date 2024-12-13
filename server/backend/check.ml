@@ -307,7 +307,7 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
        ]
      ]
    else
-     []
+     [env [("DUNE_CACHE", "disabled")]]
   ) @ [
     env ["OCAMLPARAM", "warn-error=+8,_"]; (* https://github.com/ocaml/ocaml/issues/12475 *)
   ]
