@@ -267,13 +267,15 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
   ] @@
   run "%s" ln_opam @@
   run ~network "rm -rf ~/opam-repository && git clone -q '%s' ~/opam-repository && git -C ~/opam-repository checkout -q %s" (Intf.Github.url opam_repo) opam_repo_commit @@
-  run "rm -rf ~/.opam && opam init -ya --bare ~/opam-repository" @@@
+  run "rm -rf ~/.opam && opam init -ya --bare ~/opam-repository" @@
+  run "rm -rf ~/opam-repository" @@@
   List.flatten (
     List.map (fun (repo, hash) ->
       let name = Filename.quote (Intf.Repository.name repo) in
       let url = Intf.Github.url (Intf.Repository.github repo) in
       [ run ~network "git clone -q '%s' ~/%s && git -C ~/%s checkout -q %s" url name name hash;
         run "opam repository add --dont-select %s ~/%s" name name;
+        run "rm -rf ~/%s" name;
       ]
     ) extra_repos
   ) @ [
