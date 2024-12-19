@@ -89,8 +89,8 @@ let exec ~timeout ~stdin ~stdout ~stderr cmd =
   let stdout = `FD_copy (Lwt_unix.unix_file_descr stdout) in
   let stderr = `FD_copy (Lwt_unix.unix_file_descr stderr) in
   (* TODO: maybe to factorize with pread below *)
-  let proc =
-    Lwt_process.with_process_none ~stdin ~stdout ~stderr ("", Array.of_list cmd) (fun proc ->
+  Lwt_process.with_process_none ~stdin ~stdout ~stderr ("", Array.of_list cmd) (fun proc ->
+    let proc' =
       match%lwt proc#close with
       | Unix.WEXITED 0 ->
           Lwt.return (Ok ())
@@ -102,18 +102,19 @@ let exec ~timeout ~stdin ~stdout ~stderr cmd =
           let cmd = String.concat " " cmd in
           prerr_endline ("Command '"^cmd^"' killed by a signal (n°"^string_of_int n^")");
           Lwt.return (Error ())
-    )
-  in
-  (* NOTE: e.g. any processes shouldn't take more than 2 hours *)
-  let timeout =
-    let hours = timeout in
-    let%lwt () = Lwt_unix.sleep (hours *. 60.0 *. 60.0) in
-    let cmd = String.concat " " cmd in
-    (* TODO: show errors properly in stderr and on the debug console (same for the errors above) *)
-    prerr_endline ("Command '"^cmd^"' timed-out ("^string_of_float hours^" hours)");
-    Lwt.return (Error ())
-  in
-  Lwt.pick [timeout; proc]
+    in
+    (* NOTE: e.g. any processes shouldn't take more than 2 hours *)
+    let timeout =
+      let hours = timeout in
+      let%lwt () = Lwt_unix.sleep (hours *. 60.0 *. 60.0) in
+      let cmd = String.concat " " cmd in
+      (* TODO: show errors properly in stderr and on the debug console (same for the errors above) *)
+      prerr_endline ("Command '"^cmd^"' timed-out ("^string_of_float hours^" hours)");
+      proc#kill Sys.sigkill;
+      Lwt.return (Error ())
+    in
+    Lwt.pick [timeout; proc']
+  )
 
 let pread ?cwd ?exit1 ~timeout cmd f =
   Lwt_process.with_process_in ?cwd ~timeout ~stdin:`Close ("", Array.of_list cmd) begin fun proc ->
