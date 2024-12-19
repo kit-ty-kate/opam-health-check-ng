@@ -321,7 +321,7 @@ let get_pkgs ~debug ~conf ~max_ram_per_job ~stderr (switch, base_dockerfile) =
   let pkgs = List.filter begin fun pkg ->
     Oca_lib.is_valid_filename pkg &&
     match Intf.Pkg.name (Intf.Pkg.create ~full_name:pkg ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) with (* TODO: Remove this horror *)
-    | "ocaml" | "ocaml-base-compiler" | "ocaml-variants" | "ocaml-beta" | "ocaml-config" -> false
+    | "ocaml" | "ocaml-base-compiler" | "ocaml-variants" | "ocaml-beta" | "ocaml-config" | "ocaml-compiler" -> false
     | "ocaml-option-32bit"
     | "ocaml-option-afl"
     | "ocaml-option-bytecode-only"
@@ -334,6 +334,10 @@ let get_pkgs ~debug ~conf ~max_ram_per_job ~stderr (switch, base_dockerfile) =
     | "ocaml-option-no-flat-float-array"
     | "ocaml-option-spacetime"
     | "ocaml-option-static"
+    | "ocaml-option-tsan"
+    | "ocaml-option-address-sanitizer"
+    | "ocaml-option-leak-sanitizer"
+    | "ocaml-option-no-compression"
     | "ocaml-options-only-afl"
     | "ocaml-options-only-flambda"
     | "ocaml-options-only-flambda-fp"
