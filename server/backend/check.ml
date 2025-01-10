@@ -321,7 +321,38 @@ let get_pkgs ~debug ~conf ~max_ram_per_job ~stderr (switch, base_dockerfile) =
   let pkgs = List.filter begin fun pkg ->
     Oca_lib.is_valid_filename pkg &&
     match Intf.Pkg.name (Intf.Pkg.create ~full_name:pkg ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) with (* TODO: Remove this horror *)
-    | "ocaml" | "ocaml-base-compiler" | "ocaml-variants" | "ocaml-beta" | "ocaml-config" | "ocaml-compiler" -> false
+    | "base-bigarray"
+    | "base-bytes"
+    | "base-domains"
+    | "base-effects"
+    | "base-flambda2"
+    | "base-implicits"
+    | "base-metaocaml-ocamlfind"
+    | "base-native-int63"
+    | "base-nnp"
+    | "base-no-ppx"
+    | "base-num"
+    | "base-ocamlbuild"
+    | "base-threads"
+    | "base-unix"
+    | "base-unsafe-string"
+    | "dkml-base-compiler"
+    | "host-arch-arm32"
+    | "host-arch-arm64"
+    | "host-arch-ppc64"
+    | "host-arch-riscv64"
+    | "host-arch-s390x"
+    | "host-arch-unknown"
+    | "host-arch-x86_32"
+    | "host-arch-x86_64"
+    | "host-system-mingw"
+    | "host-system-msvc"
+    | "host-system-other"
+    | "ocaml"
+    | "ocaml-base-compiler"
+    | "ocaml-beta"
+    | "ocaml-config"
+    | "ocaml-compiler"
     | "ocaml-option-32bit"
     | "ocaml-option-afl"
     | "ocaml-option-bytecode-only"
@@ -345,7 +376,8 @@ let get_pkgs ~debug ~conf ~max_ram_per_job ~stderr (switch, base_dockerfile) =
     | "ocaml-options-only-nnp"
     | "ocaml-options-only-nnpchecker"
     | "ocaml-options-only-no-flat-float-array"
-    | "ocaml-options-vanilla" -> false
+    | "ocaml-options-vanilla"
+    | "ocaml-variants" -> false
     | _ -> true
   end pkgs in
   let nelts = string_of_int (List.length pkgs) in
