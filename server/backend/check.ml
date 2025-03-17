@@ -301,7 +301,7 @@ let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
    | None -> []
   ) @
   (if Server_configfile.enable_dune_cache conf then
-     [ run ~network "opam pin add -k version dune $(opam show -f version dune)";
+     [ run ~network "(opam pin list -s | grep -qF dune) || opam pin add -k version dune $(opam show -f version dune)";
        env [
          "DUNE_CACHE", "enabled";
          "DUNE_CACHE_TRANSPORT", "direct";
