@@ -26,4 +26,4 @@
     github-unix
     github-data
     mirage-crypto-pk
-    mirage-crypto-rng-lwt))
+    mirage-crypto-rng.unix))
