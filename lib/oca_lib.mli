@@ -23,6 +23,7 @@ val with_file :
 
 val exec :
   timeout:float ->
+  ciddir:Fpath.t option ->
   stdin:Lwt_process.redirection ->
   stdout:Lwt_unix.file_descr ->
   stderr:Lwt_unix.file_descr ->

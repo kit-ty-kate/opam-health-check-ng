@@ -85,7 +85,13 @@ let with_file flags mode filename f =
   let%lwt fd = Lwt_unix.openfile filename flags mode in
   Lwt.finalize (fun () -> f fd) (fun () -> Lwt_unix.close fd)
 
-let exec ~timeout ~stdin ~stdout ~stderr cmd =
+let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
+  let cmd, cidfile = match ciddir with
+    | None -> (cmd, None)
+    | Some ciddir ->
+        let cidfile = Fpath.to_string (ciddir//"cidfile") in
+        (cmd @ ["--cidfile";cidfile], Some cidfile)
+  in
   let stdout = `FD_copy (Lwt_unix.unix_file_descr stdout) in
   let stderr = `FD_copy (Lwt_unix.unix_file_descr stderr) in
   (* TODO: maybe to factorize with pread below *)
@@ -110,7 +116,21 @@ let exec ~timeout ~stdin ~stdout ~stderr cmd =
       let cmd = String.concat " " cmd in
       (* TODO: show errors properly in stderr and on the debug console (same for the errors above) *)
       prerr_endline ("Command '"^cmd^"' timed-out ("^string_of_float hours^" hours)");
-      proc#kill Sys.sigkill;
+      let%lwt () =
+        match cidfile with
+        | None -> Lwt.return_unit
+        | Some cidfile ->
+            let container_id = IO.with_in cidfile (IO.read_all ~size:128) in
+            match%lwt
+              Lwt_process.exec ~stdin:`Close ~stdout:stderr ~stderr
+                ("", Array.of_list ["docker";"kill";"-s";"KILL";container_id])
+            with
+            | Unix.WEXITED 0 -> Lwt.return ()
+            | Unix.WEXITED _ | Unix.WSIGNALED _ | Unix.WSTOPPED _ ->
+                prerr_endline "docker kill failed";
+                Lwt.return ()
+      in
+      proc#terminate;
       Lwt.return (Error ())
     in
     Lwt.pick [timeout; proc']
