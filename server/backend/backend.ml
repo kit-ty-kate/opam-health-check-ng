@@ -65,7 +65,7 @@ let get_opams workdir =
   let dir = Server_workdirs.opamsdir workdir in
   let files = await @@ Oca_lib.get_files dir in
   let opams = Oca_server.Cache.Opams_cache.empty in
-  let%lwt opams =
+  let opams = await @@
     Lwt_list.fold_left_s begin fun opams pkg ->
       let file = Server_workdirs.opamfile ~pkg workdir in
       let content = await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string file) (Lwt_io.read ?count:None) in
@@ -79,7 +79,7 @@ let get_revdeps workdir =
   let dir = Server_workdirs.revdepsdir workdir in
   let files = await @@ Oca_lib.get_files dir in
   let revdeps = Oca_server.Cache.Revdeps_cache.empty in
-  let%lwt revdeps =
+  let revdeps = await @@
     Lwt_list.fold_left_s begin fun revdeps pkg ->
       let file = Server_workdirs.revdepsfile ~pkg workdir in
       let content = await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string file) (Lwt_io.read ?count:None) in
@@ -110,7 +110,7 @@ let cache_clear_and_init workdir =
 
 let run_action_loop ~conf ~run_trigger f =
   let rec loop () =
-    let%lwt () =
+    let () = await @@
       try%lwt
         let regular_run =
           let run_interval = Server_configfile.auto_run_interval conf * 60 * 60 in

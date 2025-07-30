@@ -100,7 +100,7 @@ let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
   self.pkgs <- begin
     let compilers = await @@ self.compilers in
     Lwt_list.mapi_s (fun i (logdir, compilers) ->
-      let%lwt p =
+      let p = await @@
         let aux () = pkgs ~compilers logdir in
         match i with
         | 0 | 1 ->
@@ -273,7 +273,7 @@ let get_html_run_list self =
 
 let get_json_latest_packages self =
   let self = await @@ !self in
-  let%lwt json =
+  let json = await @@
     let pkgs = await @@ match%lwt self.logdirs with
       | [] -> Lwt.return []
       | logdir::_ ->

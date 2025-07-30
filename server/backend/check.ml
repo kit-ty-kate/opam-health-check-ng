@@ -58,7 +58,7 @@ let docker_img_hashtbl = Docker_img_hashtbl.create 1
 let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
   let base_dockerfile = Format.sprintf "%a" Dockerfile.pp base_dockerfile in
   let timeout = Server_configfile.job_timeout conf in
-  let%lwt tag, volumes =
+  let tag, volumes = await @@
     match Docker_img_hashtbl.find_opt docker_img_hashtbl base_dockerfile with
     | None ->
         let dockerfile_hash = Hashtbl.hash (base_dockerfile : string) in (* TODO: replace with String.hash when we switch to OCaml >= 5.0 *)
@@ -74,7 +74,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
         let () = await @@ Lwt_unix.close fd in
         begin match%lwt proc with
         | Ok () ->
-            let%lwt volumes =
+            let volumes = await @@
               Lwt_list.fold_left_s (fun acc (volume, path, init) ->
                 let volume = ["--volume";volume^":"^path] in
                 match%lwt
@@ -417,7 +417,7 @@ let get_metadata ~debug ~conf ~max_ram_per_job ~jobs ~pool ~stderr logdir (_, ba
     )
   in
   let get_latest_metadata ~base_dockerfile ~pkgname ~logdir = (* TODO: Get this locally by merging all the repository and parsing the opam files using opam-core *)
-    let%lwt opam =
+    let opam = await @@
       docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~default:(Some [])
         ("opam show --raw "^Filename.quote pkgname)
     in
@@ -441,7 +441,7 @@ let get_commit_hash github =
   let user = Intf.Github.user github in
   let repo = Intf.Github.repo github in
   let branch = Intf.Github.branch github in
-  let%lwt r =
+  let r = await @@
     Github.Monad.run begin
       let ( >>= ) = Github.Monad.( >>= ) in
       Github.Repo.info ~user ~repo () >>= fun info ->
@@ -616,7 +616,7 @@ let run ~debug ~on_finished ~conf cache workdir =
         let () = await @@ update_docker_image conf in
         let (opam_repo, opam_repo_commit) = await @@ get_commit_hash_default conf in
         let extra_repos = await @@ get_commit_hash_extra_repos conf in
-        let%lwt () =
+        let () = await @@
           (* TODO: Add a mutex system to make sure nobody else is using docker
              at the same time (e.g. another opam-health-check instance) *)
           match%lwt

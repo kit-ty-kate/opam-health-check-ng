@@ -116,7 +116,7 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
       let cmd = String.concat " " cmd in
       (* TODO: show errors properly in stderr and on the debug console (same for the errors above) *)
       prerr_endline ("Command '"^cmd^"' timed-out ("^string_of_float hours^" hours)");
-      let%lwt () =
+      let () = await @@
         match cidfile with
         | None -> Lwt.return_unit
         | Some cidfile ->
@@ -197,7 +197,7 @@ let mkdir_p dir =
         Lwt.return_unit
     | x::xs ->
         let dir = Fpath.add_seg base x in
-        let%lwt [@ocaml.warning "-fragile-match"] () =
+        let [@ocaml.warning "-fragile-match"] () = await @@
           try%lwt
             Lwt_unix.mkdir (Fpath.to_string dir) 0o750
           with
@@ -218,7 +218,7 @@ let rec rm_rf dirname =
       | file ->
           let file = dirname // file in
           let stat = await @@ Lwt_unix.stat (Fpath.to_string file) in
-          let%lwt () =
+          let () = await @@
             match stat.Unix.st_kind with
             | Unix.S_DIR -> rm_rf file
             | Unix.S_REG -> Lwt_unix.unlink (Fpath.to_string file)

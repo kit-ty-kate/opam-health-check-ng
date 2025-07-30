@@ -60,7 +60,7 @@ let get_log workdir =
   Lwt.return loop
 
 let admin_action ~on_finished ~conf ~run_trigger workdir body =
-  let%lwt resp =
+  let resp = await @@
     match String.split_on_char '\n' body with
     | ["set-auto-run-interval"; i] ->
         let () = await @@ Server_configfile.set_auto_run_interval conf (int_of_string i) in
