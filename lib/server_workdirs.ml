@@ -32,7 +32,7 @@ let logdirs workdir =
   let base_logdir = base_logdir workdir in
   let dirs = await @@ Oca_lib.get_files base_logdir in
   let dirs = List.sort (fun x y -> -String.compare x y) dirs in
-  let pool = Lwt_pool.create 32 (fun () -> Lwt.return_unit) in
+  let pool = Lwt_pool.create 32 (fun () -> ()) in
   Lwt_list.map_p (fun dir ->
     match String.split_on_char '-' dir with
     | [time; hash] ->

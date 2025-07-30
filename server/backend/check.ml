@@ -132,7 +132,7 @@ let docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~def
         in
         aux []
     | Some line ->
-        let () = await @@ (if debug then Oca_lib.write_line stderr line else Lwt.return_unit) in
+        let () = await @@ (if debug then Oca_lib.write_line stderr line else ()) in
         aux ~stdin
     | None -> Lwt.return_nil
   in
@@ -433,7 +433,7 @@ let get_metadata ~debug ~conf ~max_ram_per_job ~jobs ~pool ~stderr logdir (_, ba
       Lwt_pool.use pool begin fun () ->
         let () = await @@ Oca_lib.write_line stderr ("Getting metadata for "^full_name) in
         let () = await @@ get_revdeps ~base_dockerfile ~pkgname ~pkg:full_name ~logdir in
-        if Pkg_set.mem pkgname pkgs_set then Lwt.return_unit else get_latest_metadata ~base_dockerfile ~pkgname ~logdir
+        if Pkg_set.mem pkgname pkgs_set then () else get_latest_metadata ~base_dockerfile ~pkgname ~logdir
       end
     in
     (Pkg_set.add pkgname pkgs_set, job :: jobs)
@@ -516,7 +516,7 @@ let trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf =
         (Uri.to_string webhook)
         (fun _resp acc x -> (acc ^ x)) ""
     with
-    | Ok ({Http_lwt_client.status = `OK; _}, _body) -> Lwt.return_unit
+    | Ok ({Http_lwt_client.status = `OK; _}, _body) -> ()
     | Ok (resp, body) ->
         let resp = Format.sprintf "%a" Http_lwt_client.pp_response resp in
         Oca_lib.write_line stderr (fmt "Webhook returned failure: %s\nBody: %s" resp body)
@@ -533,7 +533,7 @@ let wait_current_run_to_finish =
       let () = await @@ Lwt_unix.sleep 1. in
       loop ()
     else
-      Lwt.return_unit
+      ()
   in
   loop
 
@@ -587,7 +587,7 @@ let update_docker_image conf =
   | [image; _old_digest] ->
       begin match await @@ get_latest_image ~image with
       | Some image -> Server_configfile.set_platform_image conf image
-      | None -> prerr_endline "Defaulting to old digest"; Lwt.return_unit
+      | None -> prerr_endline "Defaulting to old digest"; ()
       end
   | _ -> Lwt.fail (Failure (fmt "Image name '%s' is not valid" image))
 
@@ -625,7 +625,7 @@ let run ~debug ~on_finished ~conf cache workdir =
             Oca_lib.exec ~timeout:1.0 ~stdin:`Close ~stdout:stderr ~stderr ~ciddir:None
               ["docker";"system";"prune";"-af"]
           with
-          | Ok () -> Lwt.return_unit
+          | Ok () -> ()
           | Error () -> raise (Failure "docker prune failed")
         in
         let switches' = switches in
@@ -638,7 +638,7 @@ let run ~debug ~on_finished ~conf cache workdir =
             let new_logdir = Server_workdirs.new_logdir ~compressed ~hash:opam_repo_commit ~start_time workdir in
             let () = await @@ Server_workdirs.init_base_jobs ~switches:switches' new_logdir in
             let number_of_jobs = Server_configfile.processes conf in
-            let pool = Lwt_pool.create number_of_jobs (fun () -> Lwt.return_unit) in
+            let pool = Lwt_pool.create number_of_jobs (fun () -> ()) in
             let max_ram_per_job = get_max_ram_per_job ~number_of_jobs in
             let pkgs = await @@ Lwt_list.map_s (get_pkgs ~debug ~max_ram_per_job ~stderr ~conf) switches in
             let pkgs = Pkg_set.of_list (List.concat pkgs) in
@@ -661,5 +661,5 @@ let run ~debug ~on_finished ~conf cache workdir =
           let () = await @@ Oca_lib.write stderr (Printexc.get_backtrace ()) in
           prerr_endline "The current run failed unexpectedly. Please check the latest log using: opam-health-check log"
     end
-  end (fun () -> run_locked := false; Lwt.return_unit) end;
-  Lwt.return_unit
+  end (fun () -> run_locked := false; ()) end;
+  ()

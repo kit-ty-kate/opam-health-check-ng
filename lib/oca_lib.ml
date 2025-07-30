@@ -75,7 +75,7 @@ let write fd str =
   let rec aux idx len =
     let bytes_written = await @@ Lwt_unix.write_string fd str idx len in
     match len - bytes_written with
-    | 0 -> Lwt.return_unit
+    | 0 -> ()
     | new_len -> aux (idx + bytes_written) new_len
   in
   aux 0 (String.length str)
@@ -120,7 +120,7 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
       prerr_endline ("Command '"^cmd^"' timed-out ("^string_of_float hours^" hours)");
       let () = await @@
         match cidfile with
-        | None -> Lwt.return_unit
+        | None -> ()
         | Some cidfile ->
             let container_id = IO.with_in cidfile (IO.read_all ~size:128) in
             match await @@
@@ -196,7 +196,7 @@ let ugrep_tpxz ~switch ~regexp ~archive =
 let mkdir_p dir =
   let rec aux base = function
     | [] ->
-        Lwt.return_unit
+        ()
     | x::xs ->
         let dir = Fpath.add_seg base x in
         let [@ocaml.warning "-fragile-match"] () = await @@
@@ -247,7 +247,7 @@ let timer_log timer c msg =
   let time_span = end_time -. start_time in
   let () = await @@ write_line c ("Done. "^msg^" took: "^string_of_float time_span^" seconds") in
   timer := Unix.time ();
-  Lwt.return_unit
+  ()
 
 let protocol_version = "2"
 let default_server_name = "default" (* TODO: Just make it random instead?! *)

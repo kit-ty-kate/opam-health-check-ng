@@ -101,7 +101,7 @@ let tcp_server port callback =
     (Cohttp_lwt_unix.Server.make ~callback ())
 
 let cache_clear_and_init workdir =
-  let pool = Lwt_pool.create 64 (fun () -> Lwt.return_unit) in
+  let pool = Lwt_pool.create 64 (fun () -> ()) in
   Oca_server.Cache.clear_and_init
     cache
     ~pkgs:(fun ~compilers logdir -> get_pkgs ~pool ~compilers logdir)

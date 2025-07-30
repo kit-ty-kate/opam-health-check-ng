@@ -29,7 +29,7 @@ let create_admin_key workdir =
   let username = Oca_lib.default_admin_name in
   let keyfile = get_keyfile workdir username in
   match await @@ Lwt_unix.file_exists (Fpath.to_string keyfile) with
-  | true -> Lwt.return_unit
+  | true -> ()
   | false -> create_userkey workdir username
 
 let get_log workdir =
