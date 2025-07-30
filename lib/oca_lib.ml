@@ -26,7 +26,7 @@ let char_is_docker_compatible = function
 let get_files dirname =
   let dir = await @@ Lwt_unix.opendir (Fpath.to_string dirname) in
   let rec aux files =
-    try%lwt
+    Lwt_direct.run @@ fun () -> try await @@
       let file = await @@ Lwt_unix.readdir dir in
       if Fpath.is_rel_seg file then
         aux files
@@ -200,7 +200,7 @@ let mkdir_p dir =
     | x::xs ->
         let dir = Fpath.add_seg base x in
         let [@ocaml.warning "-fragile-match"] () = await @@
-          try%lwt
+          Lwt_direct.run @@ fun () -> try await @@
             Lwt_unix.mkdir (Fpath.to_string dir) 0o750
           with
           | Unix.Unix_error (Unix.EEXIST, _, _) -> Lwt.return_unit
@@ -230,7 +230,7 @@ let rec rm_rf dirname =
           in
           rm_files ()
     in
-    try%lwt rm_files () with End_of_file -> Lwt.return_unit
+    Lwt_direct.run @@ fun () -> try await @@ rm_files () with End_of_file -> Lwt.return_unit
   ) ~finally:(fun () ->
     let () = await @@ Lwt_unix.closedir dir in
     await @@ Lwt_unix.rmdir (Fpath.to_string dirname)

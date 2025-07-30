@@ -156,7 +156,7 @@ module Make (Backend : Backend_intf.S) = struct
 
   let callback ~debug ~conf backend conn req body =
     (* TODO: Try to understand why it wouldn't do anything before when this was ~on_exn *)
-    try%lwt callback ~conf backend conn req body with
+    Lwt_direct.run @@ fun () -> try await @@ callback ~conf backend conn req body with
     | e ->
         if debug then begin
           let uri = Uri.to_string (Cohttp.Request.uri req) in

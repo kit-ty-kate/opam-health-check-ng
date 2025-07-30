@@ -113,7 +113,7 @@ let cache_clear_and_init workdir =
 let run_action_loop ~conf ~run_trigger f =
   let rec loop () =
     let () = await @@
-      try%lwt
+      Lwt_direct.run @@ fun () -> try await @@
         let regular_run =
           let run_interval = Server_configfile.auto_run_interval conf * 60 * 60 in
           if run_interval > 0 then

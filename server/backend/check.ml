@@ -613,7 +613,7 @@ let run ~debug ~on_finished ~conf cache workdir =
   Lwt.async begin fun () -> Lwt.finalize begin fun () ->
     let start_time = Unix.time () in
     with_stderr ~start_time workdir begin fun ~stderr ->
-      try%lwt
+      Lwt_direct.run @@ fun () -> try await @@
         let timer = Oca_lib.timer_start () in
         let () = await @@ update_docker_image conf in
         let (opam_repo, opam_repo_commit) = await @@ get_commit_hash_default conf in
