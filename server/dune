@@ -1,8 +1,7 @@
 (executable
   (name main)
   (public_name opam-health-serve)
-  (preprocess (pps lwt_ppx))
-  (libraries backend lwt.unix containers cmdliner oca_server memtrace))
+  (libraries backend lwt.unix lwt_direct containers cmdliner oca_server memtrace))
 
 (rule
   (with-stdout-to config.ml

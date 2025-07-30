@@ -1,7 +1,6 @@
 (executable
   (name client)
   (public_name opam-health-check)
-  (preprocess (pps lwt_ppx))
   (libraries
     mirage-crypto-pk
     cohttp
@@ -13,6 +12,7 @@
     uri
     lwt
     lwt.unix
+    lwt_direct
     oca_lib
     cmdliner
     yaml))
