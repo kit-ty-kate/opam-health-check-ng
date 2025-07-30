@@ -659,7 +659,7 @@ let run ~debug ~on_finished ~conf cache workdir =
       | exc ->
           let () = await @@ Oca_lib.write_line stderr ("Exception: "^Printexc.to_string exc^".") in
           let () = await @@ Oca_lib.write stderr (Printexc.get_backtrace ()) in
-          Lwt.return (prerr_endline "The current run failed unexpectedly. Please check the latest log using: opam-health-check log")
+          prerr_endline "The current run failed unexpectedly. Please check the latest log using: opam-health-check log"
     end
   end (fun () -> run_locked := false; Lwt.return_unit) end;
   Lwt.return_unit

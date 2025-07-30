@@ -33,7 +33,7 @@ let get_files dirname =
       else
         aux (file :: files)
     with
-    | End_of_file -> Lwt.return files
+    | End_of_file -> files
   in
   let files = await @@ aux [] in
   let () = await @@ Lwt_unix.closedir dir in
@@ -203,7 +203,7 @@ let mkdir_p dir =
           Lwt_direct.run @@ fun () -> try await @@
             Lwt_unix.mkdir (Fpath.to_string dir) 0o750
           with
-          | Unix.Unix_error (Unix.EEXIST, _, _) -> Lwt.return_unit
+          | Unix.Unix_error (Unix.EEXIST, _, _) -> ()
         in
         aux dir xs
   in
@@ -230,7 +230,7 @@ let rec rm_rf dirname =
           in
           rm_files ()
     in
-    Lwt_direct.run @@ fun () -> try await @@ rm_files () with End_of_file -> Lwt.return_unit
+    Lwt_direct.run @@ fun () -> try await @@ rm_files () with End_of_file -> ()
   ) ~finally:(fun () ->
     let () = await @@ Lwt_unix.closedir dir in
     await @@ Lwt_unix.rmdir (Fpath.to_string dirname)

@@ -128,7 +128,7 @@ let run_action_loop ~conf ~run_trigger f =
       with e ->
         let msg = Printexc.to_string e in
         let () = await @@ Lwt_io.write_line Lwt_io.stderr ("Exception raised in action loop: "^msg) in
-        Lwt_io.write_line Lwt_io.stderr (Printexc.get_backtrace ())
+        await @@ Lwt_io.write_line Lwt_io.stderr (Printexc.get_backtrace ())
     in
     loop ()
   in
