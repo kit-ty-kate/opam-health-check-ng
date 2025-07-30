@@ -1,5 +1,3 @@
-let await = Lwt_direct.await
-
 let compiler_to_json compiler =
   `String (Intf.Compiler.to_string compiler)
 

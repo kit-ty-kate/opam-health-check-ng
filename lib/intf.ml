@@ -1,5 +1,3 @@
-let await = Lwt_direct.await
-
 module State = struct
   type t = Good | Partial | Bad | NotAvailable | InternalFailure
 
