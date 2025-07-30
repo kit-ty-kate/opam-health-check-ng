@@ -70,7 +70,7 @@ let admin_action ~on_finished ~conf ~run_trigger workdir body =
     | ["set-processes"; i] ->
         let i = int_of_string i in
         if i < 0 then
-          Lwt.fail (Failure "Cannot set the number of processes to a negative value.")
+          raise (Failure "Cannot set the number of processes to a negative value.")
         else
           let () = await @@ Server_configfile.set_processes conf i in
           (fun () -> None)
@@ -78,7 +78,7 @@ let admin_action ~on_finished ~conf ~run_trigger workdir body =
         let switch = Intf.Switch.create ~name ~switch in
         let switches = Option.get_or ~default:[] (Server_configfile.ocaml_switches conf) in
         if List.mem ~eq:Intf.Switch.equal switch switches then
-          Lwt.fail (Failure "Cannot have duplicate switches names.")
+          raise (Failure "Cannot have duplicate switches names.")
         else
           let switches = List.sort Intf.Switch.compare (switch :: switches) in
           let () = await @@ Server_configfile.set_ocaml_switches conf switches in
@@ -115,7 +115,7 @@ let admin_action ~on_finished ~conf ~run_trigger workdir body =
     | ["log"] ->
         get_log workdir
     | _ ->
-        Lwt.fail (Failure "Action unrecognized.")
+        raise (Failure "Action unrecognized.")
   in
   let stream = Lwt_stream.from resp in
   Cohttp_lwt_unix.Server.respond ~status:`OK ~body:(`Stream stream) ()
@@ -149,7 +149,7 @@ let callback ~on_finished ~conf ~run_trigger workdir _conn _req body =
   | Some (pversion, body) when String.equal Oca_lib.protocol_version pversion ->
       begin match String.Split.left ~by:"\n" body with
       | Some (_, "") ->
-          Lwt.fail (Failure "Empty message")
+          raise (Failure "Empty message")
       | Some (user, body) ->
           let key = await @@ get_user_key workdir user in
           let body = decrypt key body in
@@ -157,12 +157,12 @@ let callback ~on_finished ~conf ~run_trigger workdir _conn _req body =
           | Some (user', body) when String.equal user user' ->
               admin_action ~on_finished ~conf ~run_trigger workdir body
           | Some _ ->
-              Lwt.fail (Failure "Identity couldn't be ensured")
+              raise (Failure "Identity couldn't be ensured")
           | None ->
-              Lwt.fail (Failure "Identity check required")
+              raise (Failure "Identity check required")
           end
       | None ->
-          Lwt.fail (Failure "Cannot find username")
+          raise (Failure "Cannot find username")
       end
   | Some (pversion, _) ->
       Cohttp_lwt_unix.Server.respond_string
@@ -172,4 +172,4 @@ let callback ~on_finished ~conf ~run_trigger workdir _conn _req body =
                 Please upgrade your client.")
         ()
   | None ->
-      Lwt.fail (Failure "Cannot parse request")
+      raise (Failure "Cannot parse request")
