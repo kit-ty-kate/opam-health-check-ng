@@ -97,9 +97,9 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
   let stderr = `FD_copy (Lwt_unix.unix_file_descr stderr) in
   (* TODO: maybe to factorize with pread below *)
   await @@ Lwt_process.with_process_none ~stdin ~stdout ~stderr ("", Array.of_list cmd) (fun proc ->
-    Lwt_direct.run @@ fun () ->
+    Lwt_direct.spawn @@ fun () ->
     let proc' =
-      Lwt_direct.run @@ fun () ->
+      Lwt_direct.spawn @@ fun () ->
       match await @@ proc#close with
       | Unix.WEXITED 0 ->
           (Ok ())
@@ -114,7 +114,7 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
     in
     (* NOTE: e.g. any processes shouldn't take more than 2 hours *)
     let timeout =
-      Lwt_direct.run @@ fun () ->
+      Lwt_direct.spawn @@ fun () ->
       let hours = timeout in
       let () = await @@ Lwt_unix.sleep (hours *. 60.0 *. 60.0) in
       let cmd = String.concat " " cmd in
@@ -141,7 +141,7 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
 
 let pread ?cwd ?exit1 ~timeout cmd f =
   await @@ Lwt_process.with_process_in ?cwd ~timeout ~stdin:`Close ("", Array.of_list cmd) begin fun proc ->
-    Lwt_direct.run @@ fun () ->
+    Lwt_direct.spawn @@ fun () ->
     let res = f proc#stdout in
     match await @@ proc#close with
     | Unix.WEXITED n ->

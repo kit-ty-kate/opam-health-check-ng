@@ -34,16 +34,16 @@ let logdirs workdir =
   let pool = Lwt_pool.create 32 (fun () -> Lwt.return ()) in
   await @@
   Lwt_list.map_p (fun dir ->
-    Lwt_direct.run @@ fun () ->
+    Lwt_direct.spawn @@ fun () ->
     match String.split_on_char '-' dir with
     | [time; hash] ->
         let logdir = base_logdir/dir in
         begin match String.split_on_char '.' hash with
         | [hash] ->
-            let files = await @@ Lwt_pool.use pool (fun () -> Lwt_direct.run @@ fun () -> Oca_lib.scan_dir logdir) in
+            let files = await @@ Lwt_pool.use pool (fun () -> Lwt_direct.spawn @@ fun () -> Oca_lib.scan_dir logdir) in
             (Logdir (Uncompressed, float_of_string time, hash, workdir, files))
         | [hash; "txz"] ->
-            let files = await @@ Lwt_pool.use pool (fun () -> Lwt_direct.run @@ fun () -> Oca_lib.scan_tpxz_archive logdir) in
+            let files = await @@ Lwt_pool.use pool (fun () -> Lwt_direct.spawn @@ fun () -> Oca_lib.scan_tpxz_archive logdir) in
             (Logdir (Compressed, float_of_string time, hash, workdir, files))
         | _ -> assert false
         end

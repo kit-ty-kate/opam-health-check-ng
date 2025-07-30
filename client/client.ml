@@ -39,7 +39,7 @@ let process_response (res, body) =
 
 let send_msg ~profilename ~confdir ~conffile msg =
   Lwt_main.run @@
-  Lwt_direct.run @@ fun () ->
+  Lwt_direct.spawn @@ fun () ->
   let conf = Configfile.from_file ~confdir conffile in
   let conf = Configfile.profile ~profilename conf in
   let hostname = Configfile.hostname conf in
@@ -177,7 +177,7 @@ let add_user_cmd ~confdir ~conffile =
 let init ~confdir ~conffile = function
   | Some local_workdir ->
       Lwt_main.run @@
-      Lwt_direct.run @@ fun () ->
+      Lwt_direct.spawn @@ fun () ->
       let cwd = Sys.getcwd () in
       let local_workdir = Server_workdirs.create ~cwd ~workdir:local_workdir in
       let server_conf = Server_configfile.from_workdir local_workdir in
@@ -189,7 +189,7 @@ let init ~confdir ~conffile = function
       Configfile.init_with_values ~confdir ~profilename ~hostname ~port ~username ~keyfile conffile
   | None ->
       Lwt_main.run @@
-      Lwt_direct.run @@ fun () ->
+      Lwt_direct.spawn @@ fun () ->
       Configfile.init ~confdir conffile
 
 let init_cmd ~confdir ~conffile =

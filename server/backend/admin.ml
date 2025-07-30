@@ -116,7 +116,7 @@ let admin_action ~on_finished ~conf ~run_trigger workdir body =
     | _ ->
         raise (Failure "Action unrecognized.")
   in
-  let stream = Lwt_stream.from (fun () -> Lwt_direct.run resp) in
+  let stream = Lwt_stream.from (fun () -> Lwt_direct.spawn resp) in
   await @@ Cohttp_lwt_unix.Server.respond ~status:`OK ~body:(`Stream stream) ()
 
 let is_bzero = function

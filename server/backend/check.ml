@@ -57,7 +57,7 @@ module Docker_img_hashtbl = Hashtbl.Make (String)
 let docker_img_hashtbl = Docker_img_hashtbl.create 1
 
 let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
-  Lwt_direct.run @@ fun () ->
+  Lwt_direct.spawn @@ fun () ->
   let base_dockerfile = Format.sprintf "%a" Dockerfile.pp base_dockerfile in
   let timeout = Server_configfile.job_timeout conf in
   let tag, volumes =
@@ -69,7 +69,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
         let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
         Lwt_unix.set_close_on_exec fd;
         let proc =
-          Lwt_direct.run @@ fun () ->
+          Lwt_direct.spawn @@ fun () ->
           Oca_lib.exec ~timeout ~stdin ~stdout ~stderr:stdout ~ciddir:None
             ["docker";"buildx";"build";"--progress=plain";"-t";tag;"-"]
         in
@@ -104,7 +104,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
   let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
   Lwt_unix.set_close_on_exec fd;
   await @@ Lwt_io.with_temp_dir @@ fun ciddir ->
-  Lwt_direct.run @@ fun () ->
+  Lwt_direct.spawn @@ fun () ->
   let proc =
     Oca_lib.exec ~timeout ~stdin ~stdout ~stderr:stdout ~ciddir:(Some (Fpath.v ciddir))
       (["docker";"run";"--rm";"--memory";max_ram_per_job;"--network=none"]@volumes@["-i";tag])
@@ -116,7 +116,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
 let exec_out ~fexec ~fout =
   let stdin, stdout = Lwt_unix.pipe () in
   let proc =
-    Lwt_direct.run @@ fun () ->
+    Lwt_direct.spawn @@ fun () ->
     Fun.protect (fun () -> await @@ fexec ~stdout) ~finally:(fun () -> await @@ Lwt_unix.close stdout)
   in
   let res = fout ~stdin in
@@ -160,7 +160,7 @@ let failure_kind conf ~pkg logfile =
   in
   let timeout = Server_configfile.job_timeout conf in
   await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string logfile) begin fun ic ->
-    Lwt_direct.run @@ fun () ->
+    Lwt_direct.spawn @@ fun () ->
     let rec lookup res =
       match await @@ Lwt_io.read_line_opt ic with
       | Some "+- The following actions failed" -> lookup `Failure
@@ -222,7 +222,7 @@ exit $res
 
 let run_job ~conf ~max_ram_per_job ~pool ~stderr ~base_dockerfile ~switch ~num logdir pkg =
   Lwt_pool.use pool begin fun () ->
-    Lwt_direct.run @@ fun () ->
+    Lwt_direct.spawn @@ fun () ->
     let () = Oca_lib.write_line stderr ("["^num^"] Checking "^pkg^" on "^Intf.Switch.switch switch^"…") in
     let switch = Intf.Switch.name switch in
     let logfile = Server_workdirs.tmplogfile ~pkg ~switch logdir in
@@ -438,7 +438,7 @@ let get_metadata ~debug ~conf ~max_ram_per_job ~jobs ~pool ~stderr logdir (_, ba
     let pkgname = Intf.Pkg.name (Intf.Pkg.create ~full_name ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) in (* TODO: Remove this horror *)
     let job =
       Lwt_pool.use pool begin fun () ->
-        Lwt_direct.run @@ fun () ->
+        Lwt_direct.spawn @@ fun () ->
         let () = Oca_lib.write_line stderr ("Getting metadata for "^full_name) in
         let () = get_revdeps ~base_dockerfile ~pkgname ~pkg:full_name ~logdir in
         if Pkg_set.mem pkgname pkgs_set then () else get_latest_metadata ~base_dockerfile ~pkgname ~logdir
@@ -619,7 +619,7 @@ let run ~debug ~on_finished ~conf cache workdir =
     failwith "operation locked";
   run_locked := true;
   Lwt.async begin fun () -> Lwt.finalize begin fun () ->
-    Lwt_direct.run @@ fun () ->
+    Lwt_direct.spawn @@ fun () ->
     let start_time = Unix.time () in
     with_stderr ~start_time workdir begin fun ~stderr ->
       try

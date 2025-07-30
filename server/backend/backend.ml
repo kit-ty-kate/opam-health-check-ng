@@ -12,7 +12,7 @@ module Pkg_tbl = Hashtbl.Make (String)
 
 let pkg_update ~pool pkg_tbl logdir comp state pkg =
   let get_content () = Lwt_pool.use pool begin fun () ->
-    Lwt_direct.run @@ fun () ->
+    Lwt_direct.spawn @@ fun () ->
     Server_workdirs.logdir_get_content ~comp ~state ~pkg logdir
   end in
   let content = Intf.Log.create get_content in
@@ -95,7 +95,7 @@ let get_revdeps workdir =
 
 (* TODO: Deduplicate with Server.tcp_server *)
 let tcp_server port callback =
-  let callback conn req body = Lwt_direct.run (fun () -> callback conn req body) in
+  let callback conn req body = Lwt_direct.spawn (fun () -> callback conn req body) in
   Cohttp_lwt_unix.Server.create
     ~on_exn:(fun _ -> ())
     ~mode:(`TCP (`Port port))
@@ -116,7 +116,7 @@ let run_action_loop ~conf ~run_trigger f =
     let () =
       try
         let regular_run =
-          Lwt_direct.run @@ fun () ->
+          Lwt_direct.spawn @@ fun () ->
           let run_interval = Server_configfile.auto_run_interval conf * 60 * 60 in
           if run_interval > 0 then
             let () = await @@ Lwt_unix.sleep (float_of_int run_interval) in

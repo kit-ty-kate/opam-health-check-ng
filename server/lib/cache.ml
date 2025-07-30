@@ -85,21 +85,21 @@ let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
   let timer = Oca_lib.timer_start () in
   let self = create_data () in
   let mvar = Lwt_mvar.create_empty () in
-  r_self := Lwt_direct.run (fun () ->
+  r_self := Lwt_direct.spawn (fun () ->
     let () = await @@ Lwt_mvar.take mvar in
     self
   );
-  self.opams <- Lwt_direct.run opams;
-  self.revdeps <- Lwt_direct.run revdeps;
-  self.logdirs <- Lwt_direct.run logdirs;
-  self.compilers <- Lwt_direct.run (fun () ->
+  self.opams <- Lwt_direct.spawn opams;
+  self.revdeps <- Lwt_direct.spawn revdeps;
+  self.logdirs <- Lwt_direct.spawn logdirs;
+  self.compilers <- Lwt_direct.spawn (fun () ->
     let logdirs = await @@ self.logdirs in
     List.map (fun logdir ->
       let c = compilers logdir in
       (logdir, c)
     ) logdirs
   );
-  self.pkgs <- Lwt_direct.run (fun () ->
+  self.pkgs <- Lwt_direct.spawn (fun () ->
     let compilers = await @@ self.compilers in
     List.mapi (fun i (logdir, compilers) ->
       let p =
@@ -179,7 +179,7 @@ let filter_pkg ~logsearch query (acc, last) pkg =
 
 (* TODO: Make use of the cache *)
 let get_logsearch ~query ~logdir =
-  Lwt_direct.run @@ fun () ->
+  Lwt_direct.spawn @@ fun () ->
   match query.Html.logsearch with
   | _, None -> []
   | regexp, Some (_, comp) ->
