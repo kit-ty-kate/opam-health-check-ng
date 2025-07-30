@@ -127,7 +127,6 @@ let is_bzero = function
 let get_user_key workdir user =
   let keyfile = get_keyfile workdir user in
   let key = await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string keyfile) (Lwt_io.read ?count:None) in
-  Lwt.return
     (match X509.Private_key.decode_pem key with
      | Ok `RSA key -> key
      | Ok _ -> failwith "unsupported key type, only RSA supported"

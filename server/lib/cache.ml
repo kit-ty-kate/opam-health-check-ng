@@ -198,7 +198,6 @@ let get_logsearch ~query ~logdir =
         | [_switch; _state; full_name] -> Some (Pkg.create ~full_name ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:(-1))
         | _ -> None
       ) searches |>
-      Lwt.return
 
 let revdeps_cmp p1 p2 =
   Int.neg (Int.compare (Intf.Pkg.revdeps p1) (Intf.Pkg.revdeps p2))
@@ -259,14 +258,12 @@ let get_html_diff ~conf ~old_logdir ~new_logdir self =
   let new_pkgs = await @@ get_pkgs ~logdir:new_logdir self in
   generate_diff old_pkgs new_pkgs |>
   Html.get_diff ~conf ~old_logdir ~new_logdir |>
-  Lwt.return
 
 let get_html_diff_list self =
   let self = await @@ !self in
   let pkgs = await @@ self.pkgs in
   Oca_lib.list_map_cube (fun (new_logdir, _) (old_logdir, _) -> (old_logdir, new_logdir)) pkgs |>
   Html.get_diff_list |>
-  Lwt.return
 
 let get_html_run_list self =
   let self = await @@ !self in
