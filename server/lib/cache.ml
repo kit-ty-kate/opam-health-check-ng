@@ -180,7 +180,7 @@ let filter_pkg ~logsearch query (acc, last) pkg =
     | None -> true
     | Some last -> not (String.equal (Pkg.name pkg) (Pkg.name last))
   in
-  match%lwt must_show_package ~logsearch query ~is_latest pkg with
+  match await @@ must_show_package ~logsearch query ~is_latest pkg with
   | true -> Lwt.return (pkg :: acc, Some pkg)
   | false -> Lwt.return (acc, Some pkg)
 
@@ -220,7 +220,7 @@ let get_html ~conf self query logdir =
 
 let get_latest_logdir self =
   let self = await @@ !self in
-  match%lwt self.logdirs with
+  match await @@ self.logdirs with
   | [] -> Lwt.return None
   | logdir::_ -> Lwt.return (Some logdir)
 
@@ -274,7 +274,7 @@ let get_html_run_list self =
 let get_json_latest_packages self =
   let self = await @@ !self in
   let json = await @@
-    let pkgs = await @@ match%lwt self.logdirs with
+    let pkgs = await @@ match await @@ self.logdirs with
       | [] -> Lwt.return []
       | logdir::_ ->
           let pkgs = await @@ self.pkgs in

@@ -87,13 +87,13 @@ module Make (Backend : Backend_intf.S) = struct
     let () = await @@ Cohttp_lwt.Body.drain_body body_NOT_USED in
     let uri = Cohttp.Request.uri req in
     let get_log ~logdir ~comp ~state ~pkg =
-      match%lwt get_logdir logdir with
+      match await @@ get_logdir logdir with
       | None ->
           Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
       | Some logdir ->
           let comp = Intf.Compiler.from_string comp in
           let state = Intf.State.from_string state in
-          match%lwt Backend.get_log backend ~logdir ~comp ~state ~pkg with
+          match await @@ Backend.get_log backend ~logdir ~comp ~state ~pkg with
           | None ->
               Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
           | Some log ->
@@ -102,7 +102,7 @@ module Make (Backend : Backend_intf.S) = struct
     in
     match path_from_uri uri with
     | [] ->
-        begin match%lwt Cache.get_latest_logdir Backend.cache with
+        begin match await @@ Cache.get_latest_logdir Backend.cache with
         | None ->
             serv_text ~content_type:"text/plain"
               "opam-health-check: no run exist, please wait for the first run \
@@ -117,7 +117,7 @@ module Make (Backend : Backend_intf.S) = struct
         let html = await @@ Cache.get_html_run_list Backend.cache in
         serv_text ~content_type:"text/html" html
     | ["run";logdir] ->
-        begin match%lwt get_logdir logdir with
+        begin match await @@ get_logdir logdir with
         | None ->
             Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
         | Some logdir ->
@@ -133,11 +133,11 @@ module Make (Backend : Backend_intf.S) = struct
           | [old_logdir; ""; new_logdir] -> (old_logdir, new_logdir)
           | _ -> assert false
         in
-        begin match%lwt get_logdir old_logdir with
+        begin match await @@ get_logdir old_logdir with
         | None ->
             Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
         | Some old_logdir ->
-            match%lwt get_logdir new_logdir with
+            match await @@ get_logdir new_logdir with
             | None ->
                 Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
             | Some new_logdir ->
