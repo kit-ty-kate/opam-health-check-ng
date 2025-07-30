@@ -559,7 +559,7 @@ let update_docker_image conf =
         let elements = Docker_hub.Manifests.elements manifests in
         begin match List.find_opt is_correct_platform elements with
         | Some {Docker_hub.Manifests.digest; _} ->
-            Lwt.return_some (Docker_hub.Image.to_string name tag (Some digest))
+            Some (Docker_hub.Image.to_string name tag (Some digest))
         | None ->
            prerr_endline (fmt "Could not find an image for OS '%s' and arch '%s'" os arch);
            None
