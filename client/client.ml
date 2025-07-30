@@ -52,8 +52,9 @@ let send_msg ~profilename ~confdir ~conffile msg =
   let prefix = Oca_lib.protocol_version^"\n"^prefix in
   print_endline "Sending command…";
   Lwt_main.run begin
+    Lwt_direct.run @@ fun () ->
     let resp = await @@ Cohttp_lwt_unix.Client.post ~body:(`String (prefix^msg)) uri in
-    process_response resp
+    await @@ process_response resp
   end
 
 let set_auto_run_interval ~confdir ~conffile profilename i =

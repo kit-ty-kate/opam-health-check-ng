@@ -2,7 +2,7 @@ let await = Lwt_direct.await
 
 module Server = Oca_server.Server.Make (Backend)
 
-let main debug workdir = Lwt_main.run (Server.main ~debug ~workdir)
+let main debug workdir = Lwt_main.run (Lwt_direct.run (fun () -> await @@ Server.main ~debug ~workdir))
 
 (* Command-line parsing *)
 
