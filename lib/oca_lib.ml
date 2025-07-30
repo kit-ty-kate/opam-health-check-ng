@@ -121,7 +121,7 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
         | None -> Lwt.return_unit
         | Some cidfile ->
             let container_id = IO.with_in cidfile (IO.read_all ~size:128) in
-            match%lwt
+            match await @@
               Lwt_process.exec ~stdin:`Close ~stdout:stderr ~stderr
                 ("", Array.of_list ["docker";"kill";"-s";"KILL";container_id])
             with

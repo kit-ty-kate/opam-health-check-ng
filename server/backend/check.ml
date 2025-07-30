@@ -77,7 +77,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
             let volumes = await @@
               Lwt_list.fold_left_s (fun acc (volume, path, init) ->
                 let volume = ["--volume";volume^":"^path] in
-                match%lwt
+                match await @@
                   Oca_lib.exec ~timeout ~stdin:`Close ~stdout ~stderr:stdout ~ciddir:None
                     (["docker";"run";"--memory";max_ram_per_job;"--rm"]@volume@[tag;"sh";"-c";init])
                 with
@@ -134,7 +134,7 @@ let docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~def
         aux ~stdin
     | None -> Lwt.return_nil
   in
-  match%lwt
+  match await @@
     exec_out ~fout:aux ~fexec:(fun ~stdout ->
       docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout (fmt "echo '%f' > /dev/null && echo @@@OUTPUT && %s && echo @@@OUTPUT" (Unix.time ()) c)
     )
@@ -217,7 +217,7 @@ let run_job ~conf ~max_ram_per_job ~pool ~stderr ~base_dockerfile ~switch ~num l
     let () = await @@ Oca_lib.write_line stderr ("["^num^"] Checking "^pkg^" on "^Intf.Switch.switch switch^"…") in
     let switch = Intf.Switch.name switch in
     let logfile = Server_workdirs.tmplogfile ~pkg ~switch logdir in
-    match%lwt
+    match await @@
       Oca_lib.with_file Unix.[O_WRONLY; O_CREAT; O_TRUNC] 0o640 (Fpath.to_string logfile) (fun stdout ->
         docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout (run_script ~conf pkg)
       )
@@ -505,7 +505,7 @@ let trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf =
   Server_configfile.slack_webhooks conf |>
   Lwt_list.iter_s begin fun webhook ->
     let () = await @@ Oca_lib.write_line stderr ("Triggering Slack webhook "^Uri.to_string webhook) in
-    match%lwt
+    match await @@
       Http_lwt_client.request
         ~config:(`HTTP_1_1 Httpaf.Config.default) (* TODO: Remove this when https://github.com/roburio/http-lwt-client/issues/7 is fixed *)
         ~meth:`POST
@@ -619,7 +619,7 @@ let run ~debug ~on_finished ~conf cache workdir =
         let () = await @@
           (* TODO: Add a mutex system to make sure nobody else is using docker
              at the same time (e.g. another opam-health-check instance) *)
-          match%lwt
+          match await @@
             Oca_lib.exec ~timeout:1.0 ~stdin:`Close ~stdout:stderr ~stderr ~ciddir:None
               ["docker";"system";"prune";"-af"]
           with
