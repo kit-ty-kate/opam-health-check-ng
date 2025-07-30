@@ -113,7 +113,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
 
 let exec_out ~fexec ~fout =
   let stdin, stdout = Lwt_unix.pipe () in
-  let proc = (fexec ~stdout) [%lwt.finally Lwt_unix.close stdout] in
+  let proc = Lwt_direct.run (fun () -> Fun.protect (fun () -> await @@ fexec ~stdout) ~finally:(fun () -> await @@ Lwt_unix.close stdout)) in
   let res = await @@ fout ~stdin in
   let () = await @@ Lwt_unix.close stdin in
   let r = await @@ proc in

@@ -213,7 +213,9 @@ let mkdir_p dir =
 
 let rec rm_rf dirname =
   let dir = await @@ Lwt_unix.opendir (Fpath.to_string dirname) in
-  begin
+  Lwt_direct.run @@ fun () ->
+  Fun.protect (fun () ->
+    await @@
     let rec rm_files () =
       match await @@ Lwt_unix.readdir dir with
       | "." | ".." -> rm_files ()
@@ -229,11 +231,10 @@ let rec rm_rf dirname =
           rm_files ()
     in
     try%lwt rm_files () with End_of_file -> Lwt.return_unit
-  end
-  [%lwt.finally
+  ) ~finally:(fun () ->
     let () = await @@ Lwt_unix.closedir dir in
-    Lwt_unix.rmdir (Fpath.to_string dirname)
-  ]
+    await @@ Lwt_unix.rmdir (Fpath.to_string dirname)
+  )
 
 type timer = float ref
 
