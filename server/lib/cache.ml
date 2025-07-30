@@ -127,7 +127,7 @@ let is_deprecated flag =
 
 let (>>&&) x f =
   let x = await @@ x in
-  if x then f () else Lwt.return_false
+  if x then f () else false
 
 let must_show_package ~logsearch query ~is_latest pkg =
   let opam = Pkg.opam pkg in
