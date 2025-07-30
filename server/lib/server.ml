@@ -40,7 +40,7 @@ module Make (Backend : Backend_intf.S) = struct
       end logsearch (Uri.get_query_param uri "logsearch_comp")
     in
     let logsearch = (option_to_string logsearch, logsearch') in
-    let available_compilers = await @@ Cache.get_compilers ~logdir Backend.cache in
+    let available_compilers = Cache.get_compilers ~logdir Backend.cache in
     let compilers = match compilers with
       | [] -> available_compilers
       | compilers -> List.map Intf.Compiler.from_string compilers
@@ -78,7 +78,7 @@ module Make (Backend : Backend_intf.S) = struct
     | path -> filter_path (Fpath.segs (Fpath.v path))
 
   let get_logdir name =
-    let logdirs = await @@ Cache.get_logdirs Backend.cache in
+    let logdirs = Cache.get_logdirs Backend.cache in
     (
       List.find_opt (fun logdir ->
         String.equal (Server_workdirs.get_logdir_name logdir) name
@@ -89,13 +89,13 @@ module Make (Backend : Backend_intf.S) = struct
     let () = await @@ Cohttp_lwt.Body.drain_body body_NOT_USED in
     let uri = Cohttp.Request.uri req in
     let get_log ~logdir ~comp ~state ~pkg =
-      match await @@ get_logdir logdir with
+      match get_logdir logdir with
       | None ->
           Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
       | Some logdir ->
           let comp = Intf.Compiler.from_string comp in
           let state = Intf.State.from_string state in
-          match await @@ Backend.get_log backend ~logdir ~comp ~state ~pkg with
+          match Backend.get_log backend ~logdir ~comp ~state ~pkg with
           | None ->
               Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
           | Some log ->
@@ -104,52 +104,52 @@ module Make (Backend : Backend_intf.S) = struct
     in
     match path_from_uri uri with
     | [] ->
-        begin match await @@ Cache.get_latest_logdir Backend.cache with
+        begin match Cache.get_latest_logdir Backend.cache with
         | None ->
             serv_text ~content_type:"text/plain"
               "opam-health-check: no run exist, please wait for the first run \
                to finish. Please look at the documentation to learn how to \
                start it.\n"
         | Some logdir ->
-            let query = await @@ parse_raw_query logdir uri in
-            let html = await @@ Cache.get_html ~conf Backend.cache query logdir in
+            let query = parse_raw_query logdir uri in
+            let html = Cache.get_html ~conf Backend.cache query logdir in
             serv_text ~content_type:"text/html" html
         end
     | ["run"] ->
-        let html = await @@ Cache.get_html_run_list Backend.cache in
+        let html = Cache.get_html_run_list Backend.cache in
         serv_text ~content_type:"text/html" html
     | ["run";logdir] ->
-        begin match await @@ get_logdir logdir with
+        begin match get_logdir logdir with
         | None ->
             Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
         | Some logdir ->
-            let query = await @@ parse_raw_query logdir uri in
-            let html = await @@ Cache.get_html ~conf Backend.cache query logdir in
+            let query = parse_raw_query logdir uri in
+            let html = Cache.get_html ~conf Backend.cache query logdir in
             serv_text ~content_type:"text/html" html
         end
     | ["diff"] ->
-        let html = await @@ Cache.get_html_diff_list Backend.cache in
+        let html = Cache.get_html_diff_list Backend.cache in
         serv_text ~content_type:"text/html" html
     | ["diff"; range] ->
         let (old_logdir, new_logdir) = match String.split_on_char '.' range with
           | [old_logdir; ""; new_logdir] -> (old_logdir, new_logdir)
           | _ -> assert false
         in
-        begin match await @@ get_logdir old_logdir with
+        begin match get_logdir old_logdir with
         | None ->
             Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
         | Some old_logdir ->
-            match await @@ get_logdir new_logdir with
+            match get_logdir new_logdir with
             | None ->
                 Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
             | Some new_logdir ->
-                let html = await @@ Cache.get_html_diff ~conf ~old_logdir ~new_logdir Backend.cache in
+                let html = Cache.get_html_diff ~conf ~old_logdir ~new_logdir Backend.cache in
                 serv_text ~content_type:"text/html" html
         end
     | ["log"; logdir; comp; state; pkg] ->
         get_log ~logdir ~comp ~state ~pkg
     | ["api"; "v1"; "latest"; "packages"] ->
-        let json = await @@ Cache.get_json_latest_packages Backend.cache in
+        let json = Cache.get_json_latest_packages Backend.cache in
         serv_text ~content_type:"application/json" json
     | _ ->
         Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
@@ -175,11 +175,11 @@ module Make (Backend : Backend_intf.S) = struct
     Printexc.record_backtrace debug;
     let cwd = await @@ Lwt_unix.getcwd () in
     let workdir = Server_workdirs.create ~cwd ~workdir in
-    let () = await @@ Server_workdirs.init_base workdir in
+    let () = Server_workdirs.init_base workdir in
     let conf = Server_configfile.from_workdir workdir in
     let port = Server_configfile.port conf in
-    let (backend, backend_task) = await @@ Backend.start ~debug conf workdir in
-    Lwt.join [
+    let (backend, backend_task) = Backend.start ~debug conf workdir in
+    await @@ Lwt.join [
       tcp_server port (callback ~debug ~conf backend);
       backend_task ();
     ]

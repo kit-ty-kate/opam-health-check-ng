@@ -1,5 +1,3 @@
-let await = Lwt_direct.await
-
 type profile = {
   keyfile : Fpath.t;
   mutable hostname : string option;
@@ -39,7 +37,7 @@ let yaml_of_conf ~profilename ~hostname ~port ~username =
 
 let init_with_values ~confdir ~profilename ~hostname ~port ~username ~keyfile yamlfile =
   let port = string_of_int port in
-  Lwt_main.run (Lwt_direct.run (fun () -> await @@ Oca_lib.mkdir_p confdir));
+  Oca_lib.mkdir_p confdir;
   copy_file ~src:keyfile ~dst:(Fpath.add_seg confdir (profilename^".key"));
   let new_profile_str = yaml_of_conf ~profilename ~hostname ~port ~username in
   IO.with_out_a (Fpath.to_string yamlfile) (fun out -> output_string out new_profile_str)

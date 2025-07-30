@@ -30,19 +30,21 @@ let new_logdir ~compressed ~hash ~start_time workdir =
 
 let logdirs workdir =
   let base_logdir = base_logdir workdir in
-  let dirs = await @@ Oca_lib.get_files base_logdir in
+  let dirs = Oca_lib.get_files base_logdir in
   let dirs = List.sort (fun x y -> -String.compare x y) dirs in
-  let pool = Lwt_pool.create 32 (fun () -> ()) in
+  let pool = Lwt_pool.create 32 (fun () -> Lwt.return ()) in
+  await @@
   Lwt_list.map_p (fun dir ->
+    Lwt_direct.run @@ fun () ->
     match String.split_on_char '-' dir with
     | [time; hash] ->
         let logdir = base_logdir/dir in
         begin match String.split_on_char '.' hash with
         | [hash] ->
-            let files = await @@ Lwt_pool.use pool (fun () -> Oca_lib.scan_dir logdir) in
+            let files = await @@ Lwt_pool.use pool (fun () -> Lwt_direct.run @@ fun () -> Oca_lib.scan_dir logdir) in
             (Logdir (Uncompressed, float_of_string time, hash, workdir, files))
         | [hash; "txz"] ->
-            let files = await @@ Lwt_pool.use pool (fun () -> Oca_lib.scan_tpxz_archive logdir) in
+            let files = await @@ Lwt_pool.use pool (fun () -> Lwt_direct.run @@ fun () -> Oca_lib.scan_tpxz_archive logdir) in
             (Logdir (Compressed, float_of_string time, hash, workdir, files))
         | _ -> assert false
         end
@@ -92,7 +94,7 @@ let logdir_get_content ~comp ~state ~pkg = function
       let comp = Intf.Compiler.to_string comp in
       let state = Intf.State.to_string state in
       let file = base_logdir workdir/get_logdir_name logdir/comp/state/pkg in
-      Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string file) (Lwt_io.read ?count:None)
+      await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string file) (Lwt_io.read ?count:None)
   | Logdir (Compressed, _, _, workdir, _) as logdir ->
       let archive = base_logdir workdir/get_logdir_name logdir+"txz" in
       let comp = Intf.Compiler.to_string comp in
@@ -118,12 +120,12 @@ let logdir_move ~switches (Logdir (ty, _, _, workdir, _) as logdir) = match ty w
       let cwd = tmplogdir logdir in
       let directories = List.map Intf.Compiler.to_string switches in
       let archive = base_logdir workdir/get_logdir_name logdir+"txz" in
-      let () = await @@ Oca_lib.compress_tpxz_archive ~cwd ~directories archive in
+      let () = Oca_lib.compress_tpxz_archive ~cwd ~directories archive in
       Oca_lib.rm_rf cwd
   | Uncompressed ->
       let tmplogdir = tmplogdir logdir in
       let logdir = base_logdir workdir/get_logdir_name logdir in
-      Lwt_unix.rename (Fpath.to_string tmplogdir) (Fpath.to_string logdir)
+      await @@ Lwt_unix.rename (Fpath.to_string tmplogdir) (Fpath.to_string logdir)
 
 let ilogdir workdir = workdir/"ilogs"
 let new_ilogfile ~start_time workdir = ilogdir workdir/Printf.sprintf "%.0f" start_time
@@ -156,23 +158,23 @@ let tmprevdepsfile ~pkg logdir = tmprevdepsdir logdir/pkg
 let configfile workdir = workdir/"config.yaml"
 
 let init_base workdir =
-  let () = await @@ Oca_lib.mkdir_p (keysdir workdir) in
-  let () = await @@ Oca_lib.mkdir_p (base_logdir workdir) in
-  let () = await @@ Oca_lib.mkdir_p (ilogdir workdir) in
-  let () = await @@ Oca_lib.mkdir_p (opamsdir workdir) in
+  let () = Oca_lib.mkdir_p (keysdir workdir) in
+  let () = Oca_lib.mkdir_p (base_logdir workdir) in
+  let () = Oca_lib.mkdir_p (ilogdir workdir) in
+  let () = Oca_lib.mkdir_p (opamsdir workdir) in
   Oca_lib.mkdir_p (revdepsdir workdir)
 
 let init_base_job ~switch logdir =
   let switch = Intf.Switch.name switch in
-  let () = await @@ Oca_lib.mkdir_p (tmpgooddir ~switch logdir) in
-  let () = await @@ Oca_lib.mkdir_p (tmppartialdir ~switch logdir) in
-  let () = await @@ Oca_lib.mkdir_p (tmpbaddir ~switch logdir) in
-  let () = await @@ Oca_lib.mkdir_p (tmpnotavailabledir ~switch logdir) in
+  let () = Oca_lib.mkdir_p (tmpgooddir ~switch logdir) in
+  let () = Oca_lib.mkdir_p (tmppartialdir ~switch logdir) in
+  let () = Oca_lib.mkdir_p (tmpbaddir ~switch logdir) in
+  let () = Oca_lib.mkdir_p (tmpnotavailabledir ~switch logdir) in
   Oca_lib.mkdir_p (tmpinternalfailuredir ~switch logdir)
 
 let init_base_jobs ~switches logdir =
-  let () = await @@ Oca_lib.mkdir_p (tmplogdir logdir) in
-  let () = await @@ Oca_lib.mkdir_p (tmpmetadatadir logdir) in
-  let () = await @@ Oca_lib.mkdir_p (tmprevdepsdir logdir) in
-  let () = await @@ Oca_lib.mkdir_p (tmpopamsdir logdir) in
+  let () = Oca_lib.mkdir_p (tmplogdir logdir) in
+  let () = Oca_lib.mkdir_p (tmpmetadatadir logdir) in
+  let () = Oca_lib.mkdir_p (tmprevdepsdir logdir) in
+  let () = Oca_lib.mkdir_p (tmpopamsdir logdir) in
   List.iter (fun switch -> init_base_job ~switch logdir) switches

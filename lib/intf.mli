@@ -59,7 +59,7 @@ end
 module Log : sig
   type t
 
-  val create : (unit -> string) -> t
+  val create : (unit -> string Lwt.t) -> t
 end
 
 module Instance : sig
@@ -69,7 +69,7 @@ module Instance : sig
 
   val compiler : t -> Compiler.t
   val state : t -> State.t
-  val content : t -> string
+  val content : t -> string Lwt.t
 end
 
 module Pkg : sig

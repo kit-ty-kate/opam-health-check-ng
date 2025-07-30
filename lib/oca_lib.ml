@@ -40,13 +40,13 @@ let get_files dirname =
   files
 
 let rec scan_dir ~full_path dirname =
-  let files = await @@ get_files full_path in
+  let files = get_files full_path in
   List.fold_left (fun acc file ->
     let full_path = Fpath.add_seg full_path file in
     let file = Fpath.normalize (Fpath.add_seg dirname file) in
     match await @@ Lwt_unix.stat (Fpath.to_string full_path) with
     | {Unix.st_kind = Unix.S_DIR; _} ->
-        let files = await @@ scan_dir ~full_path file in
+        let files = scan_dir ~full_path file in
         (Fpath.to_string (Fpath.add_seg file "") :: files @ acc)
     | {Unix.st_kind = Unix.S_REG; _} ->
         (Fpath.to_string file :: acc)
@@ -85,7 +85,7 @@ let write_line fd str =
 
 let with_file flags mode filename f =
   let fd = await @@ Lwt_unix.openfile filename flags mode in
-  Lwt.finalize (fun () -> f fd) (fun () -> Lwt_unix.close fd)
+  Fun.protect (fun () -> f fd) ~finally:(fun () -> await @@ Lwt_unix.close fd)
 
 let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
   let cmd, cidfile = match ciddir with
@@ -97,8 +97,9 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
   let stdout = `FD_copy (Lwt_unix.unix_file_descr stdout) in
   let stderr = `FD_copy (Lwt_unix.unix_file_descr stderr) in
   (* TODO: maybe to factorize with pread below *)
-  Lwt_process.with_process_none ~stdin ~stdout ~stderr ("", Array.of_list cmd) (fun proc ->
+  await @@ Lwt_process.with_process_none ~stdin ~stdout ~stderr ("", Array.of_list cmd) (fun proc ->
     let proc' =
+      Lwt_direct.run @@ fun () ->
       match await @@ proc#close with
       | Unix.WEXITED 0 ->
           (Ok ())
@@ -113,12 +114,13 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
     in
     (* NOTE: e.g. any processes shouldn't take more than 2 hours *)
     let timeout =
+      Lwt_direct.run @@ fun () ->
       let hours = timeout in
       let () = await @@ Lwt_unix.sleep (hours *. 60.0 *. 60.0) in
       let cmd = String.concat " " cmd in
       (* TODO: show errors properly in stderr and on the debug console (same for the errors above) *)
       prerr_endline ("Command '"^cmd^"' timed-out ("^string_of_float hours^" hours)");
-      let () = await @@
+      let () =
         match cidfile with
         | None -> ()
         | Some cidfile ->
@@ -139,8 +141,9 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
   )
 
 let pread ?cwd ?exit1 ~timeout cmd f =
-  Lwt_process.with_process_in ?cwd ~timeout ~stdin:`Close ("", Array.of_list cmd) begin fun proc ->
-    let res = await @@ f proc#stdout in
+  await @@ Lwt_process.with_process_in ?cwd ~timeout ~stdin:`Close ("", Array.of_list cmd) begin fun proc ->
+    Lwt_direct.run @@ fun () ->
+    let res = f proc#stdout in
     match await @@ proc#close with
     | Unix.WEXITED n ->
         begin match n, exit1 with
@@ -173,7 +176,7 @@ let scan_tpxz_archive archive =
 let random_access_tpxz_archive ~file archive =
   let file = Filename.quote file in
   let archive = Filename.quote (Fpath.to_string archive) in
-  pread ~timeout:60. ["sh"; "-c"; "pixz -i "^archive^" -x "^file^" | tar -xO"] (Lwt_io.read ?count:None)
+  pread ~timeout:60. ["sh"; "-c"; "pixz -i "^archive^" -x "^file^" | tar -xO"] (fun ic -> await @@ Lwt_io.read ?count:None ic)
 
 let compress_tpxz_archive ~cwd ~directories archive =
   let cwd = Fpath.to_string cwd in
@@ -199,9 +202,9 @@ let mkdir_p dir =
         ()
     | x::xs ->
         let dir = Fpath.add_seg base x in
-        let [@ocaml.warning "-fragile-match"] () = await @@
-          Lwt_direct.run @@ fun () -> try await @@
-            Lwt_unix.mkdir (Fpath.to_string dir) 0o750
+        let () =
+          try
+            await @@ Lwt_unix.mkdir (Fpath.to_string dir) 0o750
           with
           | Unix.Unix_error (Unix.EEXIST, _, _) -> ()
         in
@@ -213,24 +216,22 @@ let mkdir_p dir =
 
 let rec rm_rf dirname =
   let dir = await @@ Lwt_unix.opendir (Fpath.to_string dirname) in
-  Lwt_direct.run @@ fun () ->
   Fun.protect (fun () ->
-    await @@
     let rec rm_files () =
       match await @@ Lwt_unix.readdir dir with
       | "." | ".." -> rm_files ()
       | file ->
           let file = dirname // file in
           let stat = await @@ Lwt_unix.stat (Fpath.to_string file) in
-          let () = await @@
+          let () =
             match stat.Unix.st_kind with
             | Unix.S_DIR -> rm_rf file
-            | Unix.S_REG -> Lwt_unix.unlink (Fpath.to_string file)
+            | Unix.S_REG -> await @@ Lwt_unix.unlink (Fpath.to_string file)
             | Unix.(S_CHR | S_BLK | S_LNK | S_FIFO | S_SOCK) -> assert false
           in
           rm_files ()
     in
-    Lwt_direct.run @@ fun () -> try await @@ rm_files () with End_of_file -> ()
+    try rm_files () with End_of_file -> ()
   ) ~finally:(fun () ->
     let () = await @@ Lwt_unix.closedir dir in
     await @@ Lwt_unix.rmdir (Fpath.to_string dirname)
@@ -245,7 +246,7 @@ let timer_log timer c msg =
   let start_time = !timer in
   let end_time = Unix.time () in
   let time_span = end_time -. start_time in
-  let () = await @@ write_line c ("Done. "^msg^" took: "^string_of_float time_span^" seconds") in
+  let () = write_line c ("Done. "^msg^" took: "^string_of_float time_span^" seconds") in
   timer := Unix.time ();
   ()
 

@@ -1,4 +1,4 @@
-type task = unit -> unit
+type task = unit -> unit Lwt.t
 
 module type S = sig
   type t

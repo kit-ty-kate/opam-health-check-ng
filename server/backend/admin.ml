@@ -4,7 +4,7 @@ let ( // ) = Fpath.( / )
 
 let with_file_out ~flags file f =
   let flags = Unix.O_WRONLY::Unix.O_CREAT::Unix.O_TRUNC::Unix.O_NONBLOCK::flags in
-  Lwt_io.with_file ~flags ~mode:Lwt_io.Output file f
+  await @@ Lwt_io.with_file ~flags ~mode:Lwt_io.Output file f
 
 let is_username_char = function
   | 'a'..'z' -> true
@@ -34,7 +34,7 @@ let create_admin_key workdir =
 
 let get_log workdir =
   let ilogdir = Server_workdirs.ilogdir workdir in
-  let logs = await @@ Oca_lib.get_files ilogdir in
+  let logs = Oca_lib.get_files ilogdir in
   let logs = List.sort String.compare logs in
   let logfile = Option.get_exn_or "no last log" (List.last_opt logs) in
   let logfile = ilogdir // logfile in
@@ -62,17 +62,17 @@ let get_log workdir =
   loop
 
 let admin_action ~on_finished ~conf ~run_trigger workdir body =
-  let resp = await @@
+  let resp =
     match String.split_on_char '\n' body with
     | ["set-auto-run-interval"; i] ->
-        let () = await @@ Server_configfile.set_auto_run_interval conf (int_of_string i) in
+        let () = Server_configfile.set_auto_run_interval conf (int_of_string i) in
         (fun () -> None)
     | ["set-processes"; i] ->
         let i = int_of_string i in
         if i < 0 then
           raise (Failure "Cannot set the number of processes to a negative value.")
         else
-          let () = await @@ Server_configfile.set_processes conf i in
+          let () = Server_configfile.set_processes conf i in
           (fun () -> None)
     | ["add-ocaml-switch";name;switch] ->
         let switch = Intf.Switch.create ~name ~switch in
@@ -81,44 +81,44 @@ let admin_action ~on_finished ~conf ~run_trigger workdir body =
           raise (Failure "Cannot have duplicate switches names.")
         else
           let switches = List.sort Intf.Switch.compare (switch :: switches) in
-          let () = await @@ Server_configfile.set_ocaml_switches conf switches in
+          let () = Server_configfile.set_ocaml_switches conf switches in
           (fun () -> None)
     | ["set-ocaml-switch";name;switch] ->
         let switch = Intf.Switch.create ~name ~switch in
         let switches = Option.get_or ~default:[] (Server_configfile.ocaml_switches conf) in
         let idx, _ = Option.get_exn_or "can't find switch name" (List.find_idx (Intf.Switch.equal switch) switches) in
         let switches = List.set_at_idx idx switch switches in
-        let () = await @@ Server_configfile.set_ocaml_switches conf switches in
+        let () = Server_configfile.set_ocaml_switches conf switches in
         (fun () -> None)
     | ["rm-ocaml-switch";name] ->
         let switch = Intf.Switch.create ~name ~switch:"(* TODO: remove this shit *)" in
         let switches = Option.get_or ~default:[] (Server_configfile.ocaml_switches conf) in
         let switches = List.remove ~eq:Intf.Switch.equal ~key:switch switches in
-        let () = await @@ Server_configfile.set_ocaml_switches conf switches in
+        let () = Server_configfile.set_ocaml_switches conf switches in
         (fun () -> None)
     | "set-slack-webhooks"::webhooks ->
         let webhooks = List.map Uri.of_string webhooks in
-        let () = await @@ Server_configfile.set_slack_webhooks conf webhooks in
+        let () = Server_configfile.set_slack_webhooks conf webhooks in
         (fun () -> None)
     | ["set-list-command";cmd] ->
-        let () = await @@ Server_configfile.set_list_command conf cmd in
+        let () = Server_configfile.set_list_command conf cmd in
         (fun () -> None)
     | ["run"] ->
         let () = await @@ Lwt_mvar.put run_trigger () in
         (fun () -> None)
     | ["add-user";username] ->
-        let () = await @@ create_userkey workdir username in
+        let () = create_userkey workdir username in
         (fun () -> None)
     | ["clear-cache"] ->
-        let () = await @@ on_finished workdir in
+        let () = on_finished workdir in
         (fun () -> None)
     | ["log"] ->
         get_log workdir
     | _ ->
         raise (Failure "Action unrecognized.")
   in
-  let stream = Lwt_stream.from resp in
-  Cohttp_lwt_unix.Server.respond ~status:`OK ~body:(`Stream stream) ()
+  let stream = Lwt_stream.from (fun () -> Lwt_direct.run resp) in
+  await @@ Cohttp_lwt_unix.Server.respond ~status:`OK ~body:(`Stream stream) ()
 
 let is_bzero = function
   | '\000' -> true
@@ -151,7 +151,7 @@ let callback ~on_finished ~conf ~run_trigger workdir _conn _req body =
       | Some (_, "") ->
           raise (Failure "Empty message")
       | Some (user, body) ->
-          let key = await @@ get_user_key workdir user in
+          let key = get_user_key workdir user in
           let body = decrypt key body in
           begin match String.Split.left ~by:"\n" body with
           | Some (user', body) when String.equal user user' ->
@@ -165,7 +165,7 @@ let callback ~on_finished ~conf ~run_trigger workdir _conn _req body =
           raise (Failure "Cannot find username")
       end
   | Some (pversion, _) ->
-      Cohttp_lwt_unix.Server.respond_string
+      await @@ Cohttp_lwt_unix.Server.respond_string
         ~status:`Upgrade_required
         ~body:("This server requires opam-health-check protocol version \
                 '"^Oca_lib.protocol_version^"' but got '"^pversion^"'. \

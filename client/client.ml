@@ -31,13 +31,15 @@ let process_response (res, body) =
   | `OK ->
       print_body body
   | `Upgrade_required ->
-      let () = await @@ print_body body in
+      let () = print_body body in
       raise Exit
   | _ ->
       print_endline "A problem occured";
       raise Exit
 
 let send_msg ~profilename ~confdir ~conffile msg =
+  Lwt_main.run @@
+  Lwt_direct.run @@ fun () ->
   let conf = Configfile.from_file ~confdir conffile in
   let conf = Configfile.profile ~profilename conf in
   let hostname = Configfile.hostname conf in
@@ -51,11 +53,8 @@ let send_msg ~profilename ~confdir ~conffile msg =
   let uri = Uri.make ~scheme:"http" ~host:hostname ~port () in
   let prefix = Oca_lib.protocol_version^"\n"^prefix in
   print_endline "Sending command…";
-  Lwt_main.run begin
-    Lwt_direct.run @@ fun () ->
-    let resp = await @@ Cohttp_lwt_unix.Client.post ~body:(`String (prefix^msg)) uri in
-    await @@ process_response resp
-  end
+  let resp = await @@ Cohttp_lwt_unix.Client.post ~body:(`String (prefix^msg)) uri in
+  process_response resp
 
 let set_auto_run_interval ~confdir ~conffile profilename i =
   send_msg ~profilename ~confdir ~conffile ["set-auto-run-interval"; i]
