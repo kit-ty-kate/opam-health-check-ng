@@ -1,11 +1,11 @@
 (library
   (name oca_lib)
   (wrapped false)
-  (preprocess (pps lwt_ppx))
   (libraries
     unix
     lwt
     lwt.unix
+    lwt_direct
     opam-core
     opam-format
     yaml

@@ -242,45 +242,36 @@ let set_defaults conf =
 
 let set_auto_run_interval conf i =
   conf.auto_run_interval <- Some i;
-  set_defaults conf;
-  Lwt.return_unit
+  set_defaults conf
 
 let set_processes conf i =
   conf.processes <- Some i;
-  set_defaults conf;
-  Lwt.return_unit
+  set_defaults conf
 
 let set_ocaml_switches conf switches =
   conf.ocaml_switches <- Some switches;
-  set_defaults conf;
-  Lwt.return_unit
+  set_defaults conf
 
 let set_default_ocaml_switches conf f =
   if Option.is_none conf.ocaml_switches then
-    let%lwt x = f () in
+    let x = f () in
     set_ocaml_switches conf x
-  else
-    Lwt.return_unit
 
 let set_list_command conf cmd =
   conf.list_command <- Some cmd;
-  set_defaults conf;
-  Lwt.return_unit
+  set_defaults conf
 
 let set_extra_command conf cmd =
   conf.extra_command <- cmd;
-  set_defaults conf;
-  Lwt.return_unit
+  set_defaults conf
 
 let set_slack_webhooks conf webhooks =
   conf.slack_webhooks <- Some webhooks;
-  set_defaults conf;
-  Lwt.return_unit
+  set_defaults conf
 
 let set_platform_image conf image =
   conf.platform_image <- Some image;
-  set_defaults conf;
-  Lwt.return_unit
+  set_defaults conf
 
 let create yamlfile yaml =
   let conf = create_conf yamlfile in
