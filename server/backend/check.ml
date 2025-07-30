@@ -1,3 +1,5 @@
+let await = Lwt_direct.await
+
 let fmt = Printf.sprintf
 let ( // ) = Filename.concat
 let ( >>!= ) = Lwt_result.bind

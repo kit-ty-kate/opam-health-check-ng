@@ -1,3 +1,5 @@
+let await = Lwt_direct.await
+
 module Make (Backend : Backend_intf.S) = struct
   let serv_text ~content_type body =
     let headers = Cohttp.Header.init_with "Content-Type" content_type in

@@ -1,3 +1,5 @@
+let await = Lwt_direct.await
+
 type t = Server_workdirs.t
 
 let cache = Oca_server.Cache.create ()

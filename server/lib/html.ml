@@ -1,3 +1,5 @@
+let await = Lwt_direct.await
+
 open Intf
 
 (* TODO: Remove this hack? *)

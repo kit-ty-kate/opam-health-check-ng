@@ -1,3 +1,5 @@
+let await = Lwt_direct.await
+
 let parse_key file =
   let key = IO.with_in (Fpath.to_string file) (IO.read_all ?size:None) in
   let key =

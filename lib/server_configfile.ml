@@ -1,3 +1,5 @@
+let await = Lwt_direct.await
+
 type t = {
   yamlfile : Fpath.t;
   mutable name : string option;

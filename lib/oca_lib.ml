@@ -1,3 +1,5 @@
+let await = Lwt_direct.await
+
 let (//) = Fpath.(/)
 
 let with_atomic_file_out ~ext file f =

@@ -1,3 +1,5 @@
+let await = Lwt_direct.await
+
 open Intf
 
 module Opams_cache = Map.Make (String)

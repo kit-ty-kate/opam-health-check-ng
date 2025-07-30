@@ -1,3 +1,5 @@
+let await = Lwt_direct.await
+
 type t = Fpath.t
 
 let (/) path file =

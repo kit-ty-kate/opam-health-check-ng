@@ -1,3 +1,5 @@
+let await = Lwt_direct.await
+
 type profile = {
   keyfile : Fpath.t;
   mutable hostname : string option;
