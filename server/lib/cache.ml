@@ -94,14 +94,14 @@ let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
   self.logdirs <- logdirs ();
   self.compilers <- begin
     let logdirs = await @@ self.logdirs in
-    Lwt_list.map_s (fun logdir ->
+    List.map (fun logdir ->
       let c = await @@ compilers logdir in
       (logdir, c)
     ) logdirs
   end;
   self.pkgs <- begin
     let compilers = await @@ self.compilers in
-    Lwt_list.mapi_s (fun i (logdir, compilers) ->
+    List.mapi (fun i (logdir, compilers) ->
       let p = await @@
         let aux () = pkgs ~compilers logdir in
         match i with
@@ -210,7 +210,7 @@ let get_html ~conf self query logdir =
   let aux ~logdir pkgs =
     let pkgs = await @@ pkgs in
     let logsearch = get_logsearch ~query ~logdir in
-    let (pkgs, _) = await @@ Lwt_list.fold_left_s (filter_pkg ~logsearch query) ([], None) (List.rev pkgs) in
+    let (pkgs, _) = await @@ List.fold_left (filter_pkg ~logsearch query) ([], None) (List.rev pkgs) in
     let pkgs = if query.Html.sort_by_revdeps then List.sort revdeps_cmp pkgs else pkgs in
     let html = Html.get_html ~logdir ~conf query pkgs in
     html

@@ -175,4 +175,4 @@ let init_base_jobs ~switches logdir =
   let () = await @@ Oca_lib.mkdir_p (tmpmetadatadir logdir) in
   let () = await @@ Oca_lib.mkdir_p (tmprevdepsdir logdir) in
   let () = await @@ Oca_lib.mkdir_p (tmpopamsdir logdir) in
-  Lwt_list.iter_s (fun switch -> init_base_job ~switch logdir) switches
+  List.iter (fun switch -> init_base_job ~switch logdir) switches

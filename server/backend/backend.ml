@@ -68,7 +68,7 @@ let get_opams workdir =
   let files = await @@ Oca_lib.get_files dir in
   let opams = Oca_server.Cache.Opams_cache.empty in
   let opams = await @@
-    Lwt_list.fold_left_s begin fun opams pkg ->
+    List.fold_left begin fun opams pkg ->
       let file = Server_workdirs.opamfile ~pkg workdir in
       let content = await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string file) (Lwt_io.read ?count:None) in
       let content = try OpamFile.OPAM.read_from_string content with _ -> OpamFile.OPAM.empty in
@@ -82,7 +82,7 @@ let get_revdeps workdir =
   let files = await @@ Oca_lib.get_files dir in
   let revdeps = Oca_server.Cache.Revdeps_cache.empty in
   let revdeps = await @@
-    Lwt_list.fold_left_s begin fun revdeps pkg ->
+    List.fold_left begin fun revdeps pkg ->
       let file = Server_workdirs.revdepsfile ~pkg workdir in
       let content = await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string file) (Lwt_io.read ?count:None) in
       let content = String.split_on_char '\n' content in

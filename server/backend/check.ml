@@ -77,7 +77,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
         begin match await @@ proc with
         | Ok () ->
             let volumes = await @@
-              Lwt_list.fold_left_s (fun acc (volume, path, init) ->
+              List.fold_left (fun acc (volume, path, init) ->
                 let volume = ["--volume";volume^":"^path] in
                 match await @@
                   Oca_lib.exec ~timeout ~stdin:`Close ~stdout ~stderr:stdout ~ciddir:None
@@ -464,7 +464,7 @@ let get_commit_hash_default conf =
   (github, hash)
 
 let get_commit_hash_extra_repos conf =
-  Lwt_list.map_s begin fun repository ->
+  List.map begin fun repository ->
     let github = Intf.Repository.github repository in
     let hash = await @@ get_commit_hash github in
     (repository, hash)
@@ -505,7 +505,7 @@ let trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf =
         Printf.sprintf {|{"text":"The first check is done. Check out %s to discover which packages are now broken or fixed"}|} public_url
   in
   Server_configfile.slack_webhooks conf |>
-  Lwt_list.iter_s begin fun webhook ->
+  List.iter begin fun webhook ->
     let () = await @@ Oca_lib.write_line stderr ("Triggering Slack webhook "^Uri.to_string webhook) in
     match await @@
       Http_lwt_client.request
@@ -640,7 +640,7 @@ let run ~debug ~on_finished ~conf cache workdir =
             let number_of_jobs = Server_configfile.processes conf in
             let pool = Lwt_pool.create number_of_jobs (fun () -> ()) in
             let max_ram_per_job = get_max_ram_per_job ~number_of_jobs in
-            let pkgs = await @@ Lwt_list.map_s (get_pkgs ~debug ~max_ram_per_job ~stderr ~conf) switches in
+            let pkgs = await @@ List.map (get_pkgs ~debug ~max_ram_per_job ~stderr ~conf) switches in
             let pkgs = Pkg_set.of_list (List.concat pkgs) in
             let () = await @@ Oca_lib.timer_log timer stderr "Initialization" in
             let (_, jobs) = run_jobs ~conf ~max_ram_per_job ~pool ~stderr new_logdir switches pkgs in
