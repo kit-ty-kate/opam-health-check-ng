@@ -134,7 +134,7 @@ let docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~def
     | Some line ->
         let () = await @@ (if debug then Oca_lib.write_line stderr line else ()) in
         aux ~stdin
-    | None -> Lwt.return_nil
+    | None -> []
   in
   match await @@
     exec_out ~fout:aux ~fexec:(fun ~stdout ->

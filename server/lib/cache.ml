@@ -72,9 +72,9 @@ type data = {
 type t = data Lwt.t ref
 
 let create_data () = {
-  logdirs = Lwt.return_nil;
-  pkgs = Lwt.return_nil;
-  compilers = Lwt.return_nil;
+  logdirs = [];
+  pkgs = [];
+  compilers = [];
   opams = Opams_cache.empty;
   revdeps = Revdeps_cache.empty;
 }

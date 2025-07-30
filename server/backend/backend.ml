@@ -45,7 +45,7 @@ let add_pkg full_name instances acc =
 let get_pkgs ~pool ~compilers logdir =
   let pkg_tbl = Pkg_tbl.create 10_000 in
   List.iter (fill_pkgs_from_dir ~pool pkg_tbl logdir) compilers;
-  let pkgs = await @@ Pkg_tbl.fold add_pkg pkg_tbl Lwt.return_nil in
+  let pkgs = await @@ Pkg_tbl.fold add_pkg pkg_tbl [] in
   (List.sort Intf.Pkg.compare pkgs)
 
 let get_log _ ~logdir ~comp ~state ~pkg =
