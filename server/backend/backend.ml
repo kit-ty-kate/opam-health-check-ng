@@ -51,14 +51,14 @@ let get_pkgs ~pool ~compilers logdir =
 let get_log _ ~logdir ~comp ~state ~pkg =
   let pkgs = await @@ Oca_server.Cache.get_pkgs ~logdir cache in
   match List.find_opt (fun p -> String.equal pkg (Intf.Pkg.full_name p)) pkgs with
-  | None -> Lwt.return_none
+  | None -> None
   | Some pkg ->
       let is_instance inst =
         Intf.Compiler.equal comp (Intf.Instance.compiler inst) &&
         Intf.State.equal state (Intf.Instance.state inst)
       in
       match List.find_opt is_instance (Intf.Pkg.instances pkg) with
-      | None -> Lwt.return_none
+      | None -> None
       | Some instance ->
           let content = await @@ Intf.Instance.content instance in
           (Some content)

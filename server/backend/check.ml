@@ -562,7 +562,7 @@ let update_docker_image conf =
             Lwt.return_some (Docker_hub.Image.to_string name tag (Some digest))
         | None ->
            prerr_endline (fmt "Could not find an image for OS '%s' and arch '%s'" os arch);
-           Lwt.return_none
+           None
         end
     | Error e ->
        let e = match e with
@@ -574,7 +574,7 @@ let update_docker_image conf =
          | `Msg str -> str
        in
        prerr_endline ("Something went wrong while fetching docker manifests: "^e);
-       Lwt.return_none
+       None
   in
   let image = Server_configfile.platform_image conf in
   match String.split_on_char '@' image with
