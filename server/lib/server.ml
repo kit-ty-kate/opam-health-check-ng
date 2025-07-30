@@ -38,7 +38,7 @@ module Make (Backend : Backend_intf.S) = struct
       end logsearch (Uri.get_query_param uri "logsearch_comp")
     in
     let logsearch = (option_to_string logsearch, logsearch') in
-    let%lwt available_compilers = Cache.get_compilers ~logdir Backend.cache in
+    let available_compilers = await @@ Cache.get_compilers ~logdir Backend.cache in
     let compilers = match compilers with
       | [] -> available_compilers
       | compilers -> List.map Intf.Compiler.from_string compilers
@@ -76,7 +76,7 @@ module Make (Backend : Backend_intf.S) = struct
     | path -> filter_path (Fpath.segs (Fpath.v path))
 
   let get_logdir name =
-    let%lwt logdirs = Cache.get_logdirs Backend.cache in
+    let logdirs = await @@ Cache.get_logdirs Backend.cache in
     Lwt.return (
       List.find_opt (fun logdir ->
         String.equal (Server_workdirs.get_logdir_name logdir) name
@@ -84,7 +84,7 @@ module Make (Backend : Backend_intf.S) = struct
     )
 
   let callback ~conf backend _conn req body_NOT_USED =
-    let%lwt () = Cohttp_lwt.Body.drain_body body_NOT_USED in
+    let () = await @@ Cohttp_lwt.Body.drain_body body_NOT_USED in
     let uri = Cohttp.Request.uri req in
     let get_log ~logdir ~comp ~state ~pkg =
       match%lwt get_logdir logdir with
@@ -109,24 +109,24 @@ module Make (Backend : Backend_intf.S) = struct
                to finish. Please look at the documentation to learn how to \
                start it.\n"
         | Some logdir ->
-            let%lwt query = parse_raw_query logdir uri in
-            let%lwt html = Cache.get_html ~conf Backend.cache query logdir in
+            let query = await @@ parse_raw_query logdir uri in
+            let html = await @@ Cache.get_html ~conf Backend.cache query logdir in
             serv_text ~content_type:"text/html" html
         end
     | ["run"] ->
-        let%lwt html = Cache.get_html_run_list Backend.cache in
+        let html = await @@ Cache.get_html_run_list Backend.cache in
         serv_text ~content_type:"text/html" html
     | ["run";logdir] ->
         begin match%lwt get_logdir logdir with
         | None ->
             Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
         | Some logdir ->
-            let%lwt query = parse_raw_query logdir uri in
-            let%lwt html = Cache.get_html ~conf Backend.cache query logdir in
+            let query = await @@ parse_raw_query logdir uri in
+            let html = await @@ Cache.get_html ~conf Backend.cache query logdir in
             serv_text ~content_type:"text/html" html
         end
     | ["diff"] ->
-        let%lwt html = Cache.get_html_diff_list Backend.cache in
+        let html = await @@ Cache.get_html_diff_list Backend.cache in
         serv_text ~content_type:"text/html" html
     | ["diff"; range] ->
         let (old_logdir, new_logdir) = match String.split_on_char '.' range with
@@ -141,13 +141,13 @@ module Make (Backend : Backend_intf.S) = struct
             | None ->
                 Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
             | Some new_logdir ->
-                let%lwt html = Cache.get_html_diff ~conf ~old_logdir ~new_logdir Backend.cache in
+                let html = await @@ Cache.get_html_diff ~conf ~old_logdir ~new_logdir Backend.cache in
                 serv_text ~content_type:"text/html" html
         end
     | ["log"; logdir; comp; state; pkg] ->
         get_log ~logdir ~comp ~state ~pkg
     | ["api"; "v1"; "latest"; "packages"] ->
-        let%lwt json = Cache.get_json_latest_packages Backend.cache in
+        let json = await @@ Cache.get_json_latest_packages Backend.cache in
         serv_text ~content_type:"application/json" json
     | _ ->
         Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
@@ -171,12 +171,12 @@ module Make (Backend : Backend_intf.S) = struct
 
   let main ~debug ~workdir =
     Printexc.record_backtrace debug;
-    let%lwt cwd = Lwt_unix.getcwd () in
+    let cwd = await @@ Lwt_unix.getcwd () in
     let workdir = Server_workdirs.create ~cwd ~workdir in
-    let%lwt () = Server_workdirs.init_base workdir in
+    let () = await @@ Server_workdirs.init_base workdir in
     let conf = Server_configfile.from_workdir workdir in
     let port = Server_configfile.port conf in
-    let%lwt (backend, backend_task) = Backend.start ~debug conf workdir in
+    let (backend, backend_task) = await @@ Backend.start ~debug conf workdir in
     Lwt.join [
       tcp_server port (callback ~debug ~conf backend);
       backend_task ();

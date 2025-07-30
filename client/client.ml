@@ -21,7 +21,7 @@ let rec encrypt_msg ~key msg =
 
 let print_body body =
   let stream = Cohttp_lwt.Body.to_stream body in
-  let%lwt () = Lwt_stream.iter (fun s -> print_string s; flush stdout) stream in
+  let () = await @@ Lwt_stream.iter (fun s -> print_string s; flush stdout) stream in
   Lwt.return (print_newline ())
 
 let process_response (res, body) =
@@ -29,7 +29,7 @@ let process_response (res, body) =
   | `OK ->
       print_body body
   | `Upgrade_required ->
-      let%lwt () = print_body body in
+      let () = await @@ print_body body in
       Lwt.fail Exit
   | _ ->
       print_endline "A problem occured";
@@ -50,7 +50,7 @@ let send_msg ~profilename ~confdir ~conffile msg =
   let prefix = Oca_lib.protocol_version^"\n"^prefix in
   print_endline "Sending command…";
   Lwt_main.run begin
-    let%lwt resp = Cohttp_lwt_unix.Client.post ~body:(`String (prefix^msg)) uri in
+    let resp = await @@ Cohttp_lwt_unix.Client.post ~body:(`String (prefix^msg)) uri in
     process_response resp
   end
 
