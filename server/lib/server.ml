@@ -54,7 +54,7 @@ module Make (Backend : Backend_intf.S) = struct
       | [] -> Intf.State.all
       | show_only -> List.map Intf.State.from_string show_only
     in
-    Lwt.return {
+    {
       Html.available_compilers;
       Html.compilers;
       Html.show_available;
@@ -79,7 +79,7 @@ module Make (Backend : Backend_intf.S) = struct
 
   let get_logdir name =
     let logdirs = await @@ Cache.get_logdirs Backend.cache in
-    Lwt.return (
+    (
       List.find_opt (fun logdir ->
         String.equal (Server_workdirs.get_logdir_name logdir) name
       ) logdirs

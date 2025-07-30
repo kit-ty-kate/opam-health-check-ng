@@ -75,11 +75,11 @@ let create_data () = {
   logdirs = Lwt.return_nil;
   pkgs = Lwt.return_nil;
   compilers = Lwt.return_nil;
-  opams = Lwt.return Opams_cache.empty;
-  revdeps = Lwt.return Revdeps_cache.empty;
+  opams = Opams_cache.empty;
+  revdeps = Revdeps_cache.empty;
 }
 
-let create () = ref (Lwt.return (create_data ()))
+let create () = ref ((create_data ()))
 
 let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
   let timer = Oca_lib.timer_start () in
@@ -87,7 +87,7 @@ let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
   let mvar = Lwt_mvar.create_empty () in
   r_self := begin
     let () = await @@ Lwt_mvar.take mvar in
-    Lwt.return self
+    self
   end;
   self.opams <- opams ();
   self.revdeps <- revdeps ();
@@ -96,7 +96,7 @@ let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
     let logdirs = await @@ self.logdirs in
     Lwt_list.map_s (fun logdir ->
       let c = await @@ compilers logdir in
-      Lwt.return (logdir, c)
+      (logdir, c)
     ) logdirs
   end;
   self.pkgs <- begin
@@ -107,11 +107,11 @@ let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
         match i with
         | 0 | 1 ->
             let p = await @@ aux () in
-            Lwt.return (Prefetched p)
+            (Prefetched p)
         | _ ->
-            Lwt.return (Recompute aux)
+            (Recompute aux)
       in
-      Lwt.return (logdir, p)
+      (logdir, p)
     ) compilers
   end;
   let _ = await @@ self.opams in
@@ -134,7 +134,7 @@ let must_show_package ~logsearch query ~is_latest pkg =
   let instances' = Pkg.instances pkg in
   let instances = List.filter (fun inst -> List.mem ~eq:Compiler.equal (Instance.compiler inst) query.Html.compilers) instances' in
   begin
-    Lwt.return @@
+    @@
     List.exists (fun comp ->
       match List.find_opt (fun inst -> Compiler.equal comp (Instance.compiler inst)) instances' with
       | None -> true (* TODO: Maybe switch to assert false? *)
@@ -143,12 +143,12 @@ let must_show_package ~logsearch query ~is_latest pkg =
         | State.(Good | Partial | Bad | InternalFailure) -> true
     ) query.Html.show_available
   end >>&& begin fun () ->
-    Lwt.return @@
+    @@
     List.exists (fun state ->
       List.exists (fun inst -> State.equal state (Instance.state inst)) instances
     ) query.Html.show_only
   end >>&& begin fun () ->
-    Lwt.return @@
+    @@
     match instances with
     | hd::tl when query.Html.show_diff_only ->
         let state = Instance.state hd in
@@ -156,7 +156,7 @@ let must_show_package ~logsearch query ~is_latest pkg =
     | [] | _::_ ->
         true
   end >>&& begin fun () ->
-    Lwt.return @@
+    @@
     if query.Html.show_latest_only then
       if is_latest then
         not (List.exists is_deprecated opam.OpamFile.OPAM.flags)
@@ -165,7 +165,7 @@ let must_show_package ~logsearch query ~is_latest pkg =
     else
       true
   end >>&& begin fun () ->
-    Lwt.return @@
+    @@
     match snd query.Html.maintainers with
     | Some re -> List.exists (Re.execp re) opam.OpamFile.OPAM.maintainer
     | None -> true
@@ -173,7 +173,7 @@ let must_show_package ~logsearch query ~is_latest pkg =
     match snd query.Html.logsearch with
     | Some _ ->
         let logsearch = await @@ logsearch in
-        Lwt.return (List.exists (Pkg.equal pkg) logsearch)
+        (List.exists (Pkg.equal pkg) logsearch)
     | None -> Lwt.return_true
   end
 
@@ -183,13 +183,13 @@ let filter_pkg ~logsearch query (acc, last) pkg =
     | Some last -> not (String.equal (Pkg.name pkg) (Pkg.name last))
   in
   match await @@ must_show_package ~logsearch query ~is_latest pkg with
-  | true -> Lwt.return (pkg :: acc, Some pkg)
-  | false -> Lwt.return (acc, Some pkg)
+  | true -> (pkg :: acc, Some pkg)
+  | false -> (acc, Some pkg)
 
 (* TODO: Make use of the cache *)
 let get_logsearch ~query ~logdir =
   match query.Html.logsearch with
-  | _, None -> Lwt.return []
+  | _, None -> []
   | regexp, Some (_, comp) ->
       let switch = Compiler.to_string comp in
       let searches = await @@ Server_workdirs.logdir_search ~switch ~regexp logdir in
@@ -204,7 +204,7 @@ let revdeps_cmp p1 p2 =
   Int.neg (Int.compare (Intf.Pkg.revdeps p1) (Intf.Pkg.revdeps p2))
 
 let get_or_recompute = function
-  | Prefetched p -> Lwt.return p
+  | Prefetched p -> p
   | Recompute f -> f ()
 
 let get_html ~conf self query logdir =
@@ -214,7 +214,7 @@ let get_html ~conf self query logdir =
     let (pkgs, _) = await @@ Lwt_list.fold_left_s (filter_pkg ~logsearch query) ([], None) (List.rev pkgs) in
     let pkgs = if query.Html.sort_by_revdeps then List.sort revdeps_cmp pkgs else pkgs in
     let html = Html.get_html ~logdir ~conf query pkgs in
-    Lwt.return html
+    html
   in
   let pkgs = await @@ self.pkgs in
   let pkgs = List.assoc ~eq:Server_workdirs.logdir_equal logdir pkgs in
@@ -223,8 +223,8 @@ let get_html ~conf self query logdir =
 let get_latest_logdir self =
   let self = await @@ !self in
   match await @@ self.logdirs with
-  | [] -> Lwt.return None
-  | logdir::_ -> Lwt.return (Some logdir)
+  | [] -> None
+  | logdir::_ -> (Some logdir)
 
 let get_html ~conf self query logdir =
   let self = await @@ !self in
@@ -242,17 +242,17 @@ let get_pkgs ~logdir self =
 let get_compilers ~logdir self =
   let self = await @@ !self in
   let compilers = await @@ self.compilers in
-  Lwt.return (List.assoc ~eq:Server_workdirs.logdir_equal logdir compilers)
+  (List.assoc ~eq:Server_workdirs.logdir_equal logdir compilers)
 
 let get_opam self k =
   let self = await @@ !self in
   let opams = await @@ self.opams in
-  Lwt.return (Option.get_or ~default:OpamFile.OPAM.empty (Opams_cache.find_opt k opams))
+  (Option.get_or ~default:OpamFile.OPAM.empty (Opams_cache.find_opt k opams))
 
 let get_revdeps self k =
   let self = await @@ !self in
   let revdeps = await @@ self.revdeps in
-  Lwt.return (Option.get_or ~default:(-1) (Revdeps_cache.find_opt k revdeps))
+  (Option.get_or ~default:(-1) (Revdeps_cache.find_opt k revdeps))
 
 let get_html_diff ~conf ~old_logdir ~new_logdir self =
   let old_pkgs = await @@ get_pkgs ~logdir:old_logdir self in
@@ -271,18 +271,18 @@ let get_html_diff_list self =
 let get_html_run_list self =
   let self = await @@ !self in
   let pkgs = await @@ self.pkgs in
-  Lwt.return (Html.get_run_list (List.map fst pkgs))
+  (Html.get_run_list (List.map fst pkgs))
 
 let get_json_latest_packages self =
   let self = await @@ !self in
   let json = await @@
     let pkgs = await @@ match await @@ self.logdirs with
-      | [] -> Lwt.return []
+      | [] -> []
       | logdir::_ ->
           let pkgs = await @@ self.pkgs in
           get_or_recompute (List.assoc ~eq:Server_workdirs.logdir_equal logdir pkgs)
     in
     let json = Json.pkgs_to_json pkgs in
-    Lwt.return (Yojson.Safe.to_string json)
+    (Yojson.Safe.to_string json)
   in
-  Lwt.return json
+  json

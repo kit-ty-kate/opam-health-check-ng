@@ -37,7 +37,7 @@ let get_files dirname =
   in
   let files = await @@ aux [] in
   let () = await @@ Lwt_unix.closedir dir in
-  Lwt.return files
+  files
 
 let rec scan_dir ~full_path dirname =
   let files = await @@ get_files full_path in
@@ -47,9 +47,9 @@ let rec scan_dir ~full_path dirname =
     match await @@ Lwt_unix.stat (Fpath.to_string full_path) with
     | {Unix.st_kind = Unix.S_DIR; _} ->
         let files = await @@ scan_dir ~full_path file in
-        Lwt.return (Fpath.to_string (Fpath.add_seg file "") :: files @ acc)
+        (Fpath.to_string (Fpath.add_seg file "") :: files @ acc)
     | {Unix.st_kind = Unix.S_REG; _} ->
-        Lwt.return (Fpath.to_string file :: acc)
+        (Fpath.to_string file :: acc)
     | {Unix.st_kind = Unix.(S_CHR | S_BLK | S_LNK | S_FIFO | S_SOCK); _} ->
         assert false
   ) [] files
@@ -61,10 +61,10 @@ let read_line_opt fd =
   let tmp_buf = Bytes.create 1 in
   let rec aux () =
     match await @@ Lwt_unix.read fd tmp_buf 0 1 with
-    | 0 -> Lwt.return None
+    | 0 -> None
     | 1 ->
         begin match Bytes.get tmp_buf 0 with
-        | '\n' -> Lwt.return (Some (Buffer.contents buffer))
+        | '\n' -> (Some (Buffer.contents buffer))
         | c -> Buffer.add_char buffer c; aux ()
         end
     | _ -> assert false
@@ -101,15 +101,15 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
     let proc' =
       match await @@ proc#close with
       | Unix.WEXITED 0 ->
-          Lwt.return (Ok ())
+          (Ok ())
       | Unix.WEXITED n ->
           let cmd = String.concat " " cmd in
           prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^")");
-          Lwt.return (Error ())
+          (Error ())
       | Unix.WSIGNALED n | Unix.WSTOPPED n ->
           let cmd = String.concat " " cmd in
           prerr_endline ("Command '"^cmd^"' killed by a signal (n°"^string_of_int n^")");
-          Lwt.return (Error ())
+          (Error ())
     in
     (* NOTE: e.g. any processes shouldn't take more than 2 hours *)
     let timeout =
@@ -127,13 +127,13 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
               Lwt_process.exec ~stdin:`Close ~stdout:stderr ~stderr
                 ("", Array.of_list ["docker";"kill";"-s";"KILL";container_id])
             with
-            | Unix.WEXITED 0 -> Lwt.return ()
+            | Unix.WEXITED 0 -> ()
             | Unix.WEXITED _ | Unix.WSIGNALED _ | Unix.WSTOPPED _ ->
                 prerr_endline "docker kill failed";
-                Lwt.return ()
+                ()
       in
       proc#terminate;
-      Lwt.return (Error ())
+      (Error ())
     in
     Lwt.pick [timeout; proc']
   )
@@ -145,9 +145,9 @@ let pread ?cwd ?exit1 ~timeout cmd f =
     | Unix.WEXITED n ->
         begin match n, exit1 with
         | 0, _ ->
-            Lwt.return res
+            res
         | 1, Some default_val ->
-            Lwt.return default_val
+            default_val
         | _, _ ->
             let cmd = String.concat " " cmd in
             prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^")");
@@ -162,7 +162,7 @@ let pread ?cwd ?exit1 ~timeout cmd f =
 let read_unordered_lines c =
   let rec aux acc =
     match await @@ Lwt_io.read_line_opt c with
-    | None -> Lwt.return acc (* Note: We don't care about the line ordering *)
+    | None -> acc (* Note: We don't care about the line ordering *)
     | Some line -> aux (line :: acc)
   in
   aux []
@@ -180,7 +180,7 @@ let compress_tpxz_archive ~cwd ~directories archive =
   let timeout = 3. *. 3600. in (* 3 hours *)
   pread ~timeout ~cwd ("tar" :: "-Ipixz" :: "-cf" :: Fpath.to_string archive :: directories) begin fun _ ->
     (* TODO: Do not use pread *)
-    Lwt.return ()
+    ()
   end
 
 let ugrep_dir ~switch ~regexp ~cwd =

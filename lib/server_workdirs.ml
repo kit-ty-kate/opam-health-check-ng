@@ -40,10 +40,10 @@ let logdirs workdir =
         begin match String.split_on_char '.' hash with
         | [hash] ->
             let files = await @@ Lwt_pool.use pool (fun () -> Oca_lib.scan_dir logdir) in
-            Lwt.return (Logdir (Uncompressed, float_of_string time, hash, workdir, files))
+            (Logdir (Uncompressed, float_of_string time, hash, workdir, files))
         | [hash; "txz"] ->
             let files = await @@ Lwt_pool.use pool (fun () -> Oca_lib.scan_tpxz_archive logdir) in
-            Lwt.return (Logdir (Compressed, float_of_string time, hash, workdir, files))
+            (Logdir (Compressed, float_of_string time, hash, workdir, files))
         | _ -> assert false
         end
     | _ -> assert false

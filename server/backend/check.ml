@@ -83,12 +83,12 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
                   Oca_lib.exec ~timeout ~stdin:`Close ~stdout ~stderr:stdout ~ciddir:None
                     (["docker";"run";"--memory";max_ram_per_job;"--rm"]@volume@[tag;"sh";"-c";init])
                 with
-                | Ok () -> Lwt.return (acc @ volume)
+                | Ok () -> (acc @ volume)
                 | Error () -> failwith "volume creation failed"
               ) [] (volumes ~conf)
             in
             Docker_img_hashtbl.add docker_img_hashtbl base_dockerfile tag;
-            Lwt.return (tag, volumes)
+            (tag, volumes)
         | Error () -> failwith "docker build failed"
         end
     | Some tag ->
@@ -97,7 +97,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
             acc @ ["--volume";volume^":"^path]
           ) [] (volumes ~conf)
         in
-        Lwt.return (tag, volumes)
+        (tag, volumes)
   in
   let stdin, fd = Lwt_unix.pipe () in
   let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
@@ -117,7 +117,7 @@ let exec_out ~fexec ~fout =
   let res = await @@ fout ~stdin in
   let () = await @@ Lwt_unix.close stdin in
   let r = await @@ proc in
-  Lwt.return (r, res)
+  (r, res)
 
 let docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~default c =
   let rec aux ~stdin =
@@ -126,9 +126,9 @@ let docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~def
     | Some "@@@OUTPUT" ->
         let rec aux acc =
           match await @@ Oca_lib.read_line_opt stdin with
-          | Some "@@@OUTPUT" -> Lwt.return (List.rev acc)
+          | Some "@@@OUTPUT" -> (List.rev acc)
           | Some x -> aux (x :: acc)
-          | None -> prerr_endline (fmt "Error: Closing @@@OUTPUT could not be detected for command '%s'" c); Lwt.return []
+          | None -> prerr_endline (fmt "Error: Closing @@@OUTPUT could not be detected for command '%s'" c); []
         in
         aux []
     | Some line ->
@@ -142,11 +142,11 @@ let docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~def
     )
   with
   | (Ok (), r) ->
-      Lwt.return r
+      r
   | (Error (), _) ->
       match default with
       | None -> Lwt.fail (Failure ("Failure in docker: "^c)) (* TODO: Replace this with "send message to debug slack webhook" *)
-      | Some v -> Lwt.return v
+      | Some v -> v
 
 let failure_kind conf ~pkg logfile =
   let pkgname, pkgversion = match Astring.String.cut ~sep:"." pkg with
@@ -158,16 +158,16 @@ let failure_kind conf ~pkg logfile =
     let rec lookup res =
       match await @@ Lwt_io.read_line_opt ic with
       | Some "+- The following actions failed" -> lookup `Failure
-      | Some "+- The following actions were aborted" -> Lwt.return `Partial
+      | Some "+- The following actions were aborted" -> `Partial
       | Some line when String.equal ("[ERROR] No package named "^pkgname^" found.") line ||
                        String.equal ("[ERROR] Package "^pkgname^" has no version "^pkgversion^".") line ->
           lookup `NotAvailable
       | Some "[ERROR] Package conflict!" -> lookup `NotAvailable
       | Some "This package failed and has been disabled for CI using the 'x-ci-accept-failures' field." -> lookup `AcceptFailures
-      | Some line when String.equal ("+++ Timeout!! ("^string_of_float timeout^" hours) +++") line -> Lwt.return `Timeout
-      | Some line when String.prefix ~pre:"#=== ERROR while fetching sources for " line -> Lwt.return `Other
+      | Some line when String.equal ("+++ Timeout!! ("^string_of_float timeout^" hours) +++") line -> `Timeout
+      | Some line when String.prefix ~pre:"#=== ERROR while fetching sources for " line -> `Other
       | Some _ -> lookup res
-      | None -> Lwt.return res
+      | None -> res
     in
     lookup `Other
   end
@@ -394,7 +394,7 @@ let get_pkgs ~debug ~conf ~max_ram_per_job ~stderr (switch, base_dockerfile) =
   end pkgs in
   let nelts = string_of_int (List.length pkgs) in
   let () = await @@ Oca_lib.write_line stderr ("Package list for "^switch^" retrieved. "^nelts^" elements to process.") in
-  Lwt.return pkgs
+  pkgs
 
 let with_stderr ~start_time workdir f =
   let () = await @@ Oca_lib.mkdir_p (Server_workdirs.ilogdir workdir) in
@@ -456,18 +456,18 @@ let get_commit_hash github =
     end
   in
   let r = Github.Response.value r in
-  Lwt.return (r.Github_t.git_ref_obj.Github_t.obj_sha)
+  (r.Github_t.git_ref_obj.Github_t.obj_sha)
 
 let get_commit_hash_default conf =
   let github = Server_configfile.default_repository conf in
   let hash = await @@ get_commit_hash github in
-  Lwt.return (github, hash)
+  (github, hash)
 
 let get_commit_hash_extra_repos conf =
   Lwt_list.map_s begin fun repository ->
     let github = Intf.Repository.github repository in
     let hash = await @@ get_commit_hash github in
-    Lwt.return (repository, hash)
+    (repository, hash)
   end (Server_configfile.extra_repositories conf)
 
 let move_tmpdirs_to_final ~switches logdir workdir =
@@ -514,7 +514,7 @@ let trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf =
         ~headers:[("Content-type", "application/json")]
         ~body
         (Uri.to_string webhook)
-        (fun _resp acc x -> Lwt.return (acc ^ x)) ""
+        (fun _resp acc x -> (acc ^ x)) ""
     with
     | Ok ({Http_lwt_client.status = `OK; _}, _body) -> Lwt.return_unit
     | Ok (resp, body) ->

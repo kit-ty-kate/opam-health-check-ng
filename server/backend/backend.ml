@@ -40,13 +40,13 @@ let add_pkg full_name instances acc =
   let acc = await @@ acc in
   let opam = await @@ Oca_server.Cache.get_opam cache pkg in
   let revdeps = await @@ Oca_server.Cache.get_revdeps cache full_name in
-  Lwt.return (Intf.Pkg.create ~full_name ~instances ~opam ~revdeps :: acc)
+  (Intf.Pkg.create ~full_name ~instances ~opam ~revdeps :: acc)
 
 let get_pkgs ~pool ~compilers logdir =
   let pkg_tbl = Pkg_tbl.create 10_000 in
   List.iter (fill_pkgs_from_dir ~pool pkg_tbl logdir) compilers;
   let pkgs = await @@ Pkg_tbl.fold add_pkg pkg_tbl Lwt.return_nil in
-  Lwt.return (List.sort Intf.Pkg.compare pkgs)
+  (List.sort Intf.Pkg.compare pkgs)
 
 let get_log _ ~logdir ~comp ~state ~pkg =
   let pkgs = await @@ Oca_server.Cache.get_pkgs ~logdir cache in
@@ -61,7 +61,7 @@ let get_log _ ~logdir ~comp ~state ~pkg =
       | None -> Lwt.return_none
       | Some instance ->
           let content = await @@ Intf.Instance.content instance in
-          Lwt.return (Some content)
+          (Some content)
 
 let get_opams workdir =
   let dir = Server_workdirs.opamsdir workdir in
@@ -72,10 +72,10 @@ let get_opams workdir =
       let file = Server_workdirs.opamfile ~pkg workdir in
       let content = await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string file) (Lwt_io.read ?count:None) in
       let content = try OpamFile.OPAM.read_from_string content with _ -> OpamFile.OPAM.empty in
-      Lwt.return (Oca_server.Cache.Opams_cache.add pkg content opams)
+      (Oca_server.Cache.Opams_cache.add pkg content opams)
     end opams files
   in
-  Lwt.return opams
+  opams
 
 let get_revdeps workdir =
   let dir = Server_workdirs.revdepsdir workdir in
@@ -88,10 +88,10 @@ let get_revdeps workdir =
       let content = String.split_on_char '\n' content in
       let content = List.hd content in
       let content = int_of_string content in
-      Lwt.return (Oca_server.Cache.Revdeps_cache.add pkg content revdeps)
+      (Oca_server.Cache.Revdeps_cache.add pkg content revdeps)
     end revdeps files
   in
-  Lwt.return revdeps
+  revdeps
 
 (* TODO: Deduplicate with Server.tcp_server *)
 let tcp_server port callback =
@@ -105,7 +105,7 @@ let cache_clear_and_init workdir =
   Oca_server.Cache.clear_and_init
     cache
     ~pkgs:(fun ~compilers logdir -> get_pkgs ~pool ~compilers logdir)
-    ~compilers:(fun logdir -> Lwt.return (get_compilers logdir))
+    ~compilers:(fun logdir -> (get_compilers logdir))
     ~logdirs:(fun () -> Server_workdirs.logdirs workdir)
     ~opams:(fun () -> get_opams workdir)
     ~revdeps:(fun () -> get_revdeps workdir)
@@ -148,4 +148,4 @@ let start ~debug conf workdir =
       run_action_loop ~conf ~run_trigger (fun () -> Check.run ~debug ~on_finished ~conf cache workdir);
     ]
   in
-  Lwt.return (workdir, task)
+  (workdir, task)
