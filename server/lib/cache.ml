@@ -232,17 +232,17 @@ let get_pkgs ~logdir self =
 let get_compilers ~logdir self =
   let self = await @@ !self in
   let compilers = await @@ self.compilers in
-  (List.assoc ~eq:Server_workdirs.logdir_equal logdir compilers)
+  List.assoc ~eq:Server_workdirs.logdir_equal logdir compilers
 
 let get_opam self k =
   let self = await @@ !self in
   let opams = await @@ self.opams in
-  (Option.get_or ~default:OpamFile.OPAM.empty (Opams_cache.find_opt k opams))
+  Option.get_or ~default:OpamFile.OPAM.empty (Opams_cache.find_opt k opams)
 
 let get_revdeps self k =
   let self = await @@ !self in
   let revdeps = await @@ self.revdeps in
-  (Option.get_or ~default:(-1) (Revdeps_cache.find_opt k revdeps))
+  Option.get_or ~default:(-1) (Revdeps_cache.find_opt k revdeps)
 
 let get_html_diff ~conf ~old_logdir ~new_logdir self =
   let old_pkgs = get_pkgs ~logdir:old_logdir self in
@@ -259,7 +259,7 @@ let get_html_diff_list self =
 let get_html_run_list self =
   let self = await @@ !self in
   let pkgs = await @@ self.pkgs in
-  (Html.get_run_list (List.map fst pkgs))
+  Html.get_run_list (List.map fst pkgs)
 
 let get_json_latest_packages self =
   let self = await @@ !self in
@@ -271,6 +271,6 @@ let get_json_latest_packages self =
           get_or_recompute (List.assoc ~eq:Server_workdirs.logdir_equal logdir pkgs)
     in
     let json = Json.pkgs_to_json pkgs in
-    (Yojson.Safe.to_string json)
+    Yojson.Safe.to_string json
   in
   json

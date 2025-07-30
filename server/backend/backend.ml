@@ -40,13 +40,13 @@ let add_pkg full_name instances acc =
   let pkg = Intf.Pkg.name (Intf.Pkg.create ~full_name ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) in (* TODO: Remove this horror *)
   let opam = Oca_server.Cache.get_opam cache pkg in
   let revdeps = Oca_server.Cache.get_revdeps cache full_name in
-  (Intf.Pkg.create ~full_name ~instances ~opam ~revdeps :: acc)
+  Intf.Pkg.create ~full_name ~instances ~opam ~revdeps :: acc
 
 let get_pkgs ~pool ~compilers logdir =
   let pkg_tbl = Pkg_tbl.create 10_000 in
   List.iter (fill_pkgs_from_dir ~pool pkg_tbl logdir) compilers;
   let pkgs = Pkg_tbl.fold add_pkg pkg_tbl [] in
-  (List.sort Intf.Pkg.compare pkgs)
+  List.sort Intf.Pkg.compare pkgs
 
 let get_log _ ~logdir ~comp ~state ~pkg =
   let pkgs = Oca_server.Cache.get_pkgs ~logdir cache in
@@ -61,7 +61,7 @@ let get_log _ ~logdir ~comp ~state ~pkg =
       | None -> None
       | Some instance ->
           let content = await @@ Intf.Instance.content instance in
-          (Some content)
+          Some content
 
 let get_opams workdir =
   let dir = Server_workdirs.opamsdir workdir in
@@ -72,7 +72,7 @@ let get_opams workdir =
       let file = Server_workdirs.opamfile ~pkg workdir in
       let content = await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string file) (Lwt_io.read ?count:None) in
       let content = try OpamFile.OPAM.read_from_string content with _ -> OpamFile.OPAM.empty in
-      (Oca_server.Cache.Opams_cache.add pkg content opams)
+      Oca_server.Cache.Opams_cache.add pkg content opams
     end opams files
   in
   opams
@@ -88,7 +88,7 @@ let get_revdeps workdir =
       let content = String.split_on_char '\n' content in
       let content = List.hd content in
       let content = int_of_string content in
-      (Oca_server.Cache.Revdeps_cache.add pkg content revdeps)
+      Oca_server.Cache.Revdeps_cache.add pkg content revdeps
     end revdeps files
   in
   revdeps

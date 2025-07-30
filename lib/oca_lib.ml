@@ -1,5 +1,4 @@
 let await = Lwt_direct.await
-
 let (//) = Fpath.(/)
 
 let with_atomic_file_out ~ext file f =
@@ -26,7 +25,7 @@ let char_is_docker_compatible = function
 let get_files dirname =
   let dir = await @@ Lwt_unix.opendir (Fpath.to_string dirname) in
   let rec aux files =
-    Lwt_direct.run @@ fun () -> try await @@
+    try
       let file = await @@ Lwt_unix.readdir dir in
       if Fpath.is_rel_seg file then
         aux files
@@ -35,7 +34,7 @@ let get_files dirname =
     with
     | End_of_file -> files
   in
-  let files = await @@ aux [] in
+  let files = aux [] in
   let () = await @@ Lwt_unix.closedir dir in
   files
 
@@ -47,9 +46,9 @@ let rec scan_dir ~full_path dirname =
     match await @@ Lwt_unix.stat (Fpath.to_string full_path) with
     | {Unix.st_kind = Unix.S_DIR; _} ->
         let files = scan_dir ~full_path file in
-        (Fpath.to_string (Fpath.add_seg file "") :: files @ acc)
+        Fpath.to_string (Fpath.add_seg file "") :: files @ acc
     | {Unix.st_kind = Unix.S_REG; _} ->
-        (Fpath.to_string file :: acc)
+        Fpath.to_string file :: acc
     | {Unix.st_kind = Unix.(S_CHR | S_BLK | S_LNK | S_FIFO | S_SOCK); _} ->
         assert false
   ) [] files
@@ -64,7 +63,7 @@ let read_line_opt fd =
     | 0 -> None
     | 1 ->
         begin match Bytes.get tmp_buf 0 with
-        | '\n' -> (Some (Buffer.contents buffer))
+        | '\n' -> Some (Buffer.contents buffer)
         | c -> Buffer.add_char buffer c; aux ()
         end
     | _ -> assert false
@@ -98,6 +97,7 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
   let stderr = `FD_copy (Lwt_unix.unix_file_descr stderr) in
   (* TODO: maybe to factorize with pread below *)
   await @@ Lwt_process.with_process_none ~stdin ~stdout ~stderr ("", Array.of_list cmd) (fun proc ->
+    Lwt_direct.run @@ fun () ->
     let proc' =
       Lwt_direct.run @@ fun () ->
       match await @@ proc#close with
@@ -131,13 +131,12 @@ let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
             with
             | Unix.WEXITED 0 -> ()
             | Unix.WEXITED _ | Unix.WSIGNALED _ | Unix.WSTOPPED _ ->
-                prerr_endline "docker kill failed";
-                ()
+                prerr_endline "docker kill failed"
       in
       proc#terminate;
-      (Error ())
+      Error ()
     in
-    Lwt.pick [timeout; proc']
+    await @@ Lwt.pick [timeout; proc']
   )
 
 let pread ?cwd ?exit1 ~timeout cmd f =

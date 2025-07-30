@@ -176,6 +176,8 @@ let add_user_cmd ~confdir ~conffile =
 
 let init ~confdir ~conffile = function
   | Some local_workdir ->
+      Lwt_main.run @@
+      Lwt_direct.run @@ fun () ->
       let cwd = Sys.getcwd () in
       let local_workdir = Server_workdirs.create ~cwd ~workdir:local_workdir in
       let server_conf = Server_configfile.from_workdir local_workdir in
@@ -186,6 +188,8 @@ let init ~confdir ~conffile = function
       let keyfile = Server_workdirs.keyfile ~username local_workdir in
       Configfile.init_with_values ~confdir ~profilename ~hostname ~port ~username ~keyfile conffile
   | None ->
+      Lwt_main.run @@
+      Lwt_direct.run @@ fun () ->
       Configfile.init ~confdir conffile
 
 let init_cmd ~confdir ~conffile =

@@ -1,4 +1,6 @@
 let await = Lwt_direct.await
+let (+) = Fpath.(+)
+let (//) = Fpath.(//)
 
 type t = Fpath.t
 
@@ -6,9 +8,6 @@ let (/) path file =
   if not (Oca_lib.is_valid_filename file) then
     failwith "Wrong filename";
   Fpath.(/) path file
-
-let (+) = Fpath.(+)
-let (//) = Fpath.(//)
 
 let create ~cwd ~workdir = Fpath.normalize (Fpath.v cwd // Fpath.v workdir)
 

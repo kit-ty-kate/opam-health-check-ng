@@ -79,11 +79,9 @@ module Make (Backend : Backend_intf.S) = struct
 
   let get_logdir name =
     let logdirs = Cache.get_logdirs Backend.cache in
-    (
-      List.find_opt (fun logdir ->
-        String.equal (Server_workdirs.get_logdir_name logdir) name
-      ) logdirs
-    )
+    List.find_opt (fun logdir ->
+      String.equal (Server_workdirs.get_logdir_name logdir) name
+    ) logdirs
 
   let callback ~conf backend _conn req body_NOT_USED =
     let () = await @@ Cohttp_lwt.Body.drain_body body_NOT_USED in
@@ -156,7 +154,8 @@ module Make (Backend : Backend_intf.S) = struct
 
   let callback ~debug ~conf backend conn req body =
     (* TODO: Try to understand why it wouldn't do anything before when this was ~on_exn *)
-    Lwt_direct.run @@ fun () -> try await @@ callback ~conf backend conn req body with
+    Lwt_direct.run @@ fun () ->
+    try await @@ callback ~conf backend conn req body with
     | e ->
         if debug then begin
           let uri = Uri.to_string (Cohttp.Request.uri req) in
