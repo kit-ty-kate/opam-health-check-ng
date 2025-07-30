@@ -174,7 +174,7 @@ let must_show_package ~logsearch query ~is_latest pkg =
     | Some _ ->
         let logsearch = await @@ logsearch in
         (List.exists (Pkg.equal pkg) logsearch)
-    | None -> Lwt.return_true
+    | None -> true
   end
 
 let filter_pkg ~logsearch query (acc, last) pkg =
