@@ -67,7 +67,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
         let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
         Lwt_unix.set_close_on_exec fd;
         let proc =
-          Oca_lib.exec ~timeout ~stdin ~stdout ~stderr:stdout ~ciddir:None
+          Oca_lib.exec ~timeout ~stdin ~stdout ~stderr:stdout ~cidfile:None
             ["docker";"buildx";"build";"--progress=plain";"-t";tag;"-"]
         in
         let%lwt () = Oca_lib.write_line fd base_dockerfile in
@@ -78,7 +78,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
               Lwt_list.fold_left_s (fun acc (volume, path, init) ->
                 let volume = ["--volume";volume^":"^path] in
                 match%lwt
-                  Oca_lib.exec ~timeout ~stdin:`Close ~stdout ~stderr:stdout ~ciddir:None
+                  Oca_lib.exec ~timeout ~stdin:`Close ~stdout ~stderr:stdout ~cidfile:None
                     (["docker";"run";"--memory";max_ram_per_job;"--rm"]@volume@[tag;"sh";"-c";init])
                 with
                 | Ok () -> Lwt.return (acc @ volume)
@@ -102,8 +102,9 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
   Lwt_unix.set_close_on_exec fd;
   Lwt_io.with_temp_dir @@ fun ciddir ->
   let proc =
-    Oca_lib.exec ~timeout ~stdin ~stdout ~stderr:stdout ~ciddir:(Some (Fpath.v ciddir))
-      (["docker";"run";"--rm";"--memory";max_ram_per_job;"--network=none"]@volumes@["-i";tag])
+    let cidfile = ciddir//"cidfile" in
+    Oca_lib.exec ~timeout ~stdin ~stdout ~stderr:stdout ~cidfile:(Some cidfile)
+      (["docker";"run";"--rm";"--memory";max_ram_per_job;"--network=none";"--cidfile";cidfile]@volumes@["-i";tag])
   in
   let%lwt () = Oca_lib.write_line fd cmd in
   let%lwt () = Lwt_unix.close fd in
@@ -620,7 +621,7 @@ let run ~debug ~on_finished ~conf cache workdir =
           (* TODO: Add a mutex system to make sure nobody else is using docker
              at the same time (e.g. another opam-health-check instance) *)
           match%lwt
-            Oca_lib.exec ~timeout:1.0 ~stdin:`Close ~stdout:stderr ~stderr ~ciddir:None
+            Oca_lib.exec ~timeout:1.0 ~stdin:`Close ~stdout:stderr ~stderr ~cidfile:None
               ["docker";"system";"prune";"-af"]
           with
           | Ok () -> Lwt.return_unit

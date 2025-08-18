@@ -85,13 +85,7 @@ let with_file flags mode filename f =
   let%lwt fd = Lwt_unix.openfile filename flags mode in
   Lwt.finalize (fun () -> f fd) (fun () -> Lwt_unix.close fd)
 
-let exec ~timeout ~ciddir ~stdin ~stdout ~stderr cmd =
-  let cmd, cidfile = match ciddir with
-    | None -> (cmd, None)
-    | Some ciddir ->
-        let cidfile = Fpath.to_string (ciddir//"cidfile") in
-        (cmd @ ["--cidfile";cidfile], Some cidfile)
-  in
+let exec ~timeout ~cidfile ~stdin ~stdout ~stderr cmd =
   let stdout = `FD_copy (Lwt_unix.unix_file_descr stdout) in
   let stderr = `FD_copy (Lwt_unix.unix_file_descr stderr) in
   (* TODO: maybe to factorize with pread below *)
