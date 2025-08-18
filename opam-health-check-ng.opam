@@ -8,8 +8,8 @@ dev-repo: "git+https://github.com/kit-ty-kate/opam-health-check-ng"
 bug-reports: "https://github.com/kit-ty-kate/opam-health-check-ng/issues"
 build: ["dune" "build" "-p" name "-j" jobs]
 depends: [
-  "ocaml" {>= "4.14.0"}
-  "dune" {>= "1.0"}
+  "ocaml" {>= "5.2.0"}
+  "dune" {>= "3.17"}
   "tyxml" {>= "4.3.0"}
   "extunix" {>= "0.4.1"}
   "httpcats" {>= "0.1.0"}
@@ -41,7 +41,6 @@ depends: [
   "uri"
   "docker_hub" {>= "0.2.0"}
   "memtrace"
-  "domain_shims" # TODO: remove when we require OCaml >= 5.0
   "tls-lwt" {>= "0.16.0"} # activate conduit with TLS for slack webhooks
   "conf-libev" # Required for lwt to avoid hitting the limits of select(2)
   "conf-pixz" # TODO: Make it a library

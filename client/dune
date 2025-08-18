@@ -2,6 +2,8 @@
   (name client)
   (public_name opam-health-check)
   (libraries
+    x509
+    lwt.unix
     mirage-crypto-pk
     httpcats
     containers

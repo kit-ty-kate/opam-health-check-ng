@@ -2,6 +2,7 @@
   (name backend)
   (preprocess (pps lwt_ppx))
   (libraries
+    unix
     oca_lib
     fmt
     uri
@@ -9,21 +10,22 @@
     extunix
     lwt.unix
     fpath
+    astring
     xdg-basedir
     cohttp
     cohttp-lwt
     cohttp-lwt-unix
     docker_hub
+    httpaf
     http-lwt-client
     containers
     oca_server
     opam-core
     opam-format
     dockerfile
-    ; conduit-lwt-unix ; TODO: Remove this. Not required explicitly but uncomment if you use (implicit_transitive_deps false)
-    ; result ; TODO: Remove this. Not required explicitly but uncomment if you use (implicit_transitive_deps false)
     github
     github-unix
     github-data
+    x509
     mirage-crypto-pk
     mirage-crypto-rng.unix))

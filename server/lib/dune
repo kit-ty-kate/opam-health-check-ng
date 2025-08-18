@@ -3,13 +3,14 @@
   (modules_without_implementation backend_intf)
   (preprocess (pps lwt_ppx))
   (libraries
+    unix
     lwt
     lwt.unix
     tyxml
     tyxml.functor
     cohttp
+    cohttp-lwt
     cohttp-lwt-unix
-    ; conduit-lwt-unix ; TODO: Remove this. Not required explicitly but uncomment if you use (implicit_transitive_deps false)
     opam-format
     containers
     fpath

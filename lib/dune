@@ -3,6 +3,7 @@
   (wrapped false)
   (preprocess (pps lwt_ppx))
   (libraries
+    unix
     lwt
     lwt.unix
     opam-core

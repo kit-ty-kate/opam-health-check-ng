@@ -61,7 +61,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
   let%lwt tag, volumes =
     match Docker_img_hashtbl.find_opt docker_img_hashtbl base_dockerfile with
     | None ->
-        let dockerfile_hash = Hashtbl.hash (base_dockerfile : string) in (* TODO: replace with String.hash when we switch to OCaml >= 5.0 *)
+        let dockerfile_hash = String.hash base_dockerfile in
         let tag = fmt "opam-health-check-%s-%d" (Server_configfile.name conf) dockerfile_hash in
         let stdin, fd = Lwt_unix.pipe () in
         let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
