@@ -12,6 +12,7 @@ depends: [
   "dune" {>= "1.0"}
   "tyxml" {>= "4.3.0"}
   "extunix" {>= "0.4.1"}
+  "httpcats" {>= "0.1.0"}
   "cohttp"
   "cohttp-lwt"
   "cohttp-lwt-unix"
