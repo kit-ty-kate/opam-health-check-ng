@@ -3,14 +3,10 @@
   (modules_without_implementation backend_intf)
   (libraries
     unix
-    lwt
-    lwt.unix
-    lwt_direct
+    miou
+    miou.unix
     tyxml
     tyxml.functor
-    cohttp
-    cohttp-lwt
-    cohttp-lwt-unix
     opam-format
     containers
     fpath

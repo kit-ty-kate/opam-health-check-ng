@@ -1,7 +1,14 @@
 (executable
   (name main)
   (public_name opam-health-serve)
-  (libraries backend lwt.unix lwt_direct containers cmdliner oca_server memtrace))
+  (libraries
+    backend
+    miou
+    miou.unix
+    containers
+    cmdliner
+    oca_server
+    memtrace))
 
 (rule
   (with-stdout-to config.ml

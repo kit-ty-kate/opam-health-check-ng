@@ -1,5 +1,3 @@
-let await = Lwt_direct.await
-
 module Make (Backend : Backend_intf.S) = struct
   let serv_text ~content_type body =
     let headers = Cohttp.Header.init_with "Content-Type" content_type in
@@ -172,7 +170,7 @@ module Make (Backend : Backend_intf.S) = struct
 
   let main ~debug ~workdir =
     Printexc.record_backtrace debug;
-    let cwd = await @@ Lwt_unix.getcwd () in
+    let cwd = Unix.getcwd () in
     let workdir = Server_workdirs.create ~cwd ~workdir in
     let () = Server_workdirs.init_base workdir in
     let conf = Server_configfile.from_workdir workdir in

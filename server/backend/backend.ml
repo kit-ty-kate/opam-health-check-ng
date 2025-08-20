@@ -1,5 +1,3 @@
-let await = Lwt_direct.await
-
 type t = Server_workdirs.t
 
 let cache = Oca_server.Cache.create ()
@@ -11,8 +9,7 @@ let get_compilers logdir =
 module Pkg_tbl = Hashtbl.Make (String)
 
 let pkg_update ~pool pkg_tbl logdir comp state pkg =
-  let get_content () = Lwt_pool.use pool begin fun () ->
-    Lwt_direct.spawn @@ fun () ->
+  let get_content () = Utils.Miou_pool.use pool begin fun () ->
     Server_workdirs.logdir_get_content ~comp ~state ~pkg logdir
   end in
   let content = Intf.Log.create get_content in
@@ -70,7 +67,7 @@ let get_opams workdir =
   let opams =
     List.fold_left begin fun opams pkg ->
       let file = Server_workdirs.opamfile ~pkg workdir in
-      let content = await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string file) (Lwt_io.read ?count:None) in
+      let content = Utils.with_in (Fpath.to_string file) Utils.read_all in
       let content = try OpamFile.OPAM.read_from_string content with _ -> OpamFile.OPAM.empty in
       Oca_server.Cache.Opams_cache.add pkg content opams
     end opams files
@@ -84,7 +81,7 @@ let get_revdeps workdir =
   let revdeps =
     List.fold_left begin fun revdeps pkg ->
       let file = Server_workdirs.revdepsfile ~pkg workdir in
-      let content = await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string file) (Lwt_io.read ?count:None) in
+      let content = Utils.with_in (Fpath.to_string file) Utils.read_all in
       let content = String.split_on_char '\n' content in
       let content = List.hd content in
       let content = int_of_string content in
@@ -95,14 +92,13 @@ let get_revdeps workdir =
 
 (* TODO: Deduplicate with Server.tcp_server *)
 let tcp_server port callback =
-  let callback conn req body = Lwt_direct.spawn (fun () -> callback conn req body) in
   Cohttp_lwt_unix.Server.create
     ~on_exn:(fun _ -> ())
     ~mode:(`TCP (`Port port))
     (Cohttp_lwt_unix.Server.make ~callback ())
 
 let cache_clear_and_init workdir =
-  let pool = Lwt_pool.create 64 (fun () -> Lwt.return ()) in
+  let pool = Utils.Miou_pool.create 64 (fun () -> ()) in
   Oca_server.Cache.clear_and_init
     cache
     ~pkgs:(fun ~compilers logdir -> get_pkgs ~pool ~compilers logdir)
@@ -112,34 +108,35 @@ let cache_clear_and_init workdir =
     ~revdeps:(fun () -> get_revdeps workdir)
 
 let run_action_loop ~conf ~run_trigger f =
-  let rec loop () =
-    let () =
+  let rec loop previous_action =
+    let action =
       try
         let regular_run =
-          Lwt_direct.spawn @@ fun () ->
+          Miou.async @@ fun () ->
           let run_interval = Server_configfile.auto_run_interval conf * 60 * 60 in
           if run_interval > 0 then
-            let () = await @@ Lwt_unix.sleep (float_of_int run_interval) in
+            let () = Miou_unix.sleep (float_of_int run_interval) in
             Check.wait_current_run_to_finish ()
           else
-            await @@ fst (Lwt.wait ())
+            await @@ fst (Miou.wait ())
         in
-        let manual_run = Lwt_mvar.take run_trigger in
+        let manual_run = Utils.Miou_mvar.take run_trigger in
         let () = await @@ Lwt.pick [regular_run; manual_run] in
+        Miou.await_exn previous_action;
         f ()
       with e ->
         let msg = Printexc.to_string e in
         let () = await @@ Lwt_io.write_line Lwt_io.stderr ("Exception raised in action loop: "^msg) in
         await @@ Lwt_io.write_line Lwt_io.stderr (Printexc.get_backtrace ())
     in
-    loop ()
+    loop action
   in
-  loop ()
+  loop (Miou.async (fun () -> ()))
 
 let start ~debug conf workdir =
   let port = Server_configfile.admin_port conf in
   let on_finished = cache_clear_and_init in
-  let run_trigger = Lwt_mvar.create_empty () in
+  let run_trigger = Utils.Miou_mvar.create_empty () in
   let callback = Admin.callback ~on_finished ~conf ~run_trigger workdir in
   cache_clear_and_init workdir;
   Mirage_crypto_rng_unix.use_default ();

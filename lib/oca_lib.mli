@@ -3,10 +3,10 @@ val list_map_cube : ('a -> 'a -> 'b) -> 'a list -> 'b list
 val is_valid_filename : string -> bool
 val char_is_docker_compatible : char -> bool
 
-val read_line_opt : Lwt_unix.file_descr -> string option
+val read_line_opt : Miou_unix.file_descr -> string option
 
-val write : Lwt_unix.file_descr -> string -> unit
-val write_line : Lwt_unix.file_descr -> string -> unit
+val write : Miou_unix.file_descr -> string -> unit
+val write_line : Miou_unix.file_descr -> string -> unit
 
 val with_atomic_file_out :
   ext:string ->
@@ -15,18 +15,18 @@ val with_atomic_file_out :
   unit
 
 val with_file :
-  Lwt_unix.open_flag list ->
-  Lwt_unix.file_perm ->
+  Unix.open_flag list ->
+  Unix.file_perm ->
   string ->
-  (Lwt_unix.file_descr -> 'a) ->
+  (Miou_unix.file_descr -> 'a) ->
   'a
 
 val exec :
   timeout:float ->
   cidfile:string option ->
-  stdin:Lwt_process.redirection ->
-  stdout:Lwt_unix.file_descr ->
-  stderr:Lwt_unix.file_descr ->
+  stdin:Utils.Miou_process.redirection ->
+  stdout:Miou_unix.file_descr ->
+  stderr:Miou_unix.file_descr ->
   string list ->
   (unit, unit) result
 
@@ -40,10 +40,12 @@ val ugrep_tpxz : switch:string -> regexp:string -> archive:Fpath.t -> string lis
 val mkdir_p : Fpath.t -> unit
 val rm_rf : Fpath.t -> unit
 
+val with_temp_dir : (string -> 'a) -> 'a
+
 type timer
 
 val timer_start : unit -> timer
-val timer_log : timer -> Lwt_unix.file_descr -> string -> unit
+val timer_log : timer -> Miou_unix.file_descr -> string -> unit
 
 val protocol_version : string
 val default_server_name : string

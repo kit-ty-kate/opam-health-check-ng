@@ -1,5 +1,3 @@
-let await = Lwt_direct.await
-
 open Intf
 
 module Opams_cache = Map.Make (String)
@@ -62,45 +60,45 @@ type 'a prefetched_or_recompute =
   | Recompute of (unit -> 'a)
 
 type data = {
-  mutable logdirs : Server_workdirs.logdir list Lwt.t;
-  mutable pkgs : (Server_workdirs.logdir * Intf.Pkg.t list prefetched_or_recompute) list Lwt.t;
-  mutable compilers : (Server_workdirs.logdir * Intf.Compiler.t list) list Lwt.t;
-  mutable opams : OpamFile.OPAM.t Opams_cache.t Lwt.t;
-  mutable revdeps : int Revdeps_cache.t Lwt.t;
+  mutable logdirs : Server_workdirs.logdir list Miou.t;
+  mutable pkgs : (Server_workdirs.logdir * Intf.Pkg.t list prefetched_or_recompute) list Miou.t;
+  mutable compilers : (Server_workdirs.logdir * Intf.Compiler.t list) list Miou.t;
+  mutable opams : OpamFile.OPAM.t Opams_cache.t Miou.t;
+  mutable revdeps : int Revdeps_cache.t Miou.t;
 }
 
-type t = data Lwt.t ref
+type t = data Miou.t ref
 
 let create_data () = {
-  logdirs = Lwt.return [];
-  pkgs = Lwt.return [];
-  compilers = Lwt.return [];
-  opams = Lwt.return Opams_cache.empty;
-  revdeps = Lwt.return Revdeps_cache.empty;
+  logdirs = Miou.async (fun () -> []);
+  pkgs = Miou.async (fun () -> []);
+  compilers = Miou.async (fun () -> []);
+  opams = Miou.async (fun () -> Opams_cache.empty);
+  revdeps = Miou.async (fun () -> Revdeps_cache.empty);
 }
 
-let create () = ref (Lwt.return (create_data ()))
+let create () = ref (Miou.async (fun () -> create_data ()))
 
 let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
   let timer = Oca_lib.timer_start () in
   let self = create_data () in
-  let mvar = Lwt_mvar.create_empty () in
-  r_self := Lwt_direct.spawn (fun () ->
-    let () = await @@ Lwt_mvar.take mvar in
+  let mvar = Utils.Miou_mvar.create_empty () in
+  r_self := Miou.async (fun () ->
+    let () = Miou.await_exn @@ Utils.Miou_mvar.take mvar in
     self
   );
-  self.opams <- Lwt_direct.spawn opams;
-  self.revdeps <- Lwt_direct.spawn revdeps;
-  self.logdirs <- Lwt_direct.spawn logdirs;
-  self.compilers <- Lwt_direct.spawn (fun () ->
-    let logdirs = await @@ self.logdirs in
+  self.opams <- Miou.async opams;
+  self.revdeps <- Miou.async revdeps;
+  self.logdirs <- Miou.async logdirs;
+  self.compilers <- Miou.async (fun () ->
+    let logdirs = Miou.await_exn self.logdirs in
     List.map (fun logdir ->
       let c = compilers logdir in
       (logdir, c)
     ) logdirs
   );
-  self.pkgs <- Lwt_direct.spawn (fun () ->
-    let compilers = await @@ self.compilers in
+  self.pkgs <- Miou.async (fun () ->
+    let compilers = Miou.await_exn self.compilers in
     List.mapi (fun i (logdir, compilers) ->
       let p =
         let aux () = pkgs ~compilers logdir in
@@ -114,13 +112,13 @@ let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
       (logdir, p)
     ) compilers
   );
-  let _ = await @@ self.opams in
-  let _ = await @@ self.revdeps in
-  let _ = await @@ self.logdirs in
-  let _ = await @@ self.compilers in
-  let () = await @@ Lwt_mvar.put mvar () in
-  let _ = await @@ self.pkgs in
-  Oca_lib.timer_log timer Lwt_unix.stderr "Cache prefetching"
+  let _ = Miou.await_exn self.opams in
+  let _ = Miou.await_exn self.revdeps in
+  let _ = Miou.await_exn self.logdirs in
+  let _ = Miou.await_exn self.compilers in
+  let () = Miou.await_exn @@ Utils.Miou_mvar.put mvar () in
+  let _ = Miou.await_exn self.pkgs in
+  Oca_lib.timer_log timer (Miou_unix.of_file_descr Unix.stderr) "Cache prefetching"
 
 let is_deprecated flag =
   String.equal (OpamTypesBase.string_of_pkg_flag flag) "deprecated"
@@ -163,7 +161,7 @@ let must_show_package ~logsearch query ~is_latest pkg =
   end && begin
     match snd query.Html.logsearch with
     | Some _ ->
-        let logsearch = await @@ logsearch in
+        let logsearch = Miou.await_exn logsearch in
         (List.exists (Pkg.equal pkg) logsearch)
     | None -> true
   end
@@ -179,7 +177,7 @@ let filter_pkg ~logsearch query (acc, last) pkg =
 
 (* TODO: Make use of the cache *)
 let get_logsearch ~query ~logdir =
-  Lwt_direct.spawn @@ fun () ->
+  Miou.async @@ fun () ->
   match query.Html.logsearch with
   | _, None -> []
   | regexp, Some (_, comp) ->
@@ -206,42 +204,42 @@ let get_html ~conf self query logdir =
     let html = Html.get_html ~logdir ~conf query pkgs in
     html
   in
-  let pkgs = await @@ self.pkgs in
+  let pkgs = Miou.await_exn self.pkgs in
   let pkgs = List.assoc ~eq:Server_workdirs.logdir_equal logdir pkgs in
   aux ~logdir (get_or_recompute pkgs)
 
 let get_latest_logdir self =
-  let self = await @@ !self in
-  match await @@ self.logdirs with
+  let self = Miou.await_exn !self in
+  match Miou.await_exn self.logdirs with
   | [] -> None
   | logdir::_ -> (Some logdir)
 
 let get_html ~conf self query logdir =
-  let self = await @@ !self in
+  let self = Miou.await_exn !self in
   get_html ~conf self query logdir
 
 let get_logdirs self =
-  let self = await @@ !self in
-  await @@ self.logdirs
+  let self = Miou.await_exn !self in
+  Miou.await_exn self.logdirs
 
 let get_pkgs ~logdir self =
-  let self = await @@ !self in
-  let pkgs = await @@ self.pkgs in
+  let self = Miou.await_exn !self in
+  let pkgs = Miou.await_exn self.pkgs in
   get_or_recompute (List.assoc ~eq:Server_workdirs.logdir_equal logdir pkgs)
 
 let get_compilers ~logdir self =
-  let self = await @@ !self in
-  let compilers = await @@ self.compilers in
+  let self = Miou.await_exn !self in
+  let compilers = Miou.await_exn self.compilers in
   List.assoc ~eq:Server_workdirs.logdir_equal logdir compilers
 
 let get_opam self k =
-  let self = await @@ !self in
-  let opams = await @@ self.opams in
+  let self = Miou.await_exn !self in
+  let opams = Miou.await_exn self.opams in
   Option.get_or ~default:OpamFile.OPAM.empty (Opams_cache.find_opt k opams)
 
 let get_revdeps self k =
-  let self = await @@ !self in
-  let revdeps = await @@ self.revdeps in
+  let self = Miou.await_exn !self in
+  let revdeps = Miou.await_exn self.revdeps in
   Option.get_or ~default:(-1) (Revdeps_cache.find_opt k revdeps)
 
 let get_html_diff ~conf ~old_logdir ~new_logdir self =
@@ -251,23 +249,23 @@ let get_html_diff ~conf ~old_logdir ~new_logdir self =
   Html.get_diff ~conf ~old_logdir ~new_logdir
 
 let get_html_diff_list self =
-  let self = await @@ !self in
-  let pkgs = await @@ self.pkgs in
+  let self = Miou.await_exn !self in
+  let pkgs = Miou.await_exn self.pkgs in
   Oca_lib.list_map_cube (fun (new_logdir, _) (old_logdir, _) -> (old_logdir, new_logdir)) pkgs |>
   Html.get_diff_list
 
 let get_html_run_list self =
-  let self = await @@ !self in
-  let pkgs = await @@ self.pkgs in
+  let self = Miou.await_exn !self in
+  let pkgs = Miou.await_exn self.pkgs in
   Html.get_run_list (List.map fst pkgs)
 
 let get_json_latest_packages self =
-  let self = await @@ !self in
+  let self = Miou.await_exn !self in
   let json =
-    let pkgs = match await @@ self.logdirs with
+    let pkgs = match Miou.await_exn self.logdirs with
       | [] -> []
       | logdir::_ ->
-          let pkgs = await @@ self.pkgs in
+          let pkgs = Miou.await_exn self.pkgs in
           get_or_recompute (List.assoc ~eq:Server_workdirs.logdir_equal logdir pkgs)
     in
     let json = Json.pkgs_to_json pkgs in

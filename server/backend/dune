@@ -2,22 +2,17 @@
   (name backend)
   (libraries
     unix
+    miou
+    miou.unix
+    httpcats
     oca_lib
     fmt
     uri
-    lwt
     extunix
-    lwt.unix
-    lwt_direct
     fpath
     astring
     xdg-basedir
-    cohttp
-    cohttp-lwt
-    cohttp-lwt-unix
     docker_hub
-    httpaf
-    http-lwt-client
     containers
     oca_server
     opam-core
@@ -26,6 +21,7 @@
     github
     github-unix
     github-data
+    lwt.unix
     x509
     mirage-crypto-pk
     mirage-crypto-rng.unix))

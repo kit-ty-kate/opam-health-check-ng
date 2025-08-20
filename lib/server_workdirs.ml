@@ -1,4 +1,3 @@
-let await = Lwt_direct.await
 let (+) = Fpath.(+)
 let (//) = Fpath.(//)
 
@@ -31,19 +30,17 @@ let logdirs workdir =
   let base_logdir = base_logdir workdir in
   let dirs = Oca_lib.get_files base_logdir in
   let dirs = List.sort (fun x y -> -String.compare x y) dirs in
-  let pool = Lwt_pool.create 32 (fun () -> Lwt.return ()) in
-  await @@
-  Lwt_list.map_p (fun dir ->
-    Lwt_direct.spawn @@ fun () ->
+  let pool = Utils.Miou_pool.create 32 (fun () -> ()) in
+  Utils.Miou_list.map_p (fun dir ->
     match String.split_on_char '-' dir with
     | [time; hash] ->
         let logdir = base_logdir/dir in
         begin match String.split_on_char '.' hash with
         | [hash] ->
-            let files = await @@ Lwt_pool.use pool (fun () -> Lwt_direct.spawn @@ fun () -> Oca_lib.scan_dir logdir) in
+            let files = Utils.Miou_pool.use pool (fun () -> Oca_lib.scan_dir logdir) in
             (Logdir (Uncompressed, float_of_string time, hash, workdir, files))
         | [hash; "txz"] ->
-            let files = await @@ Lwt_pool.use pool (fun () -> Lwt_direct.spawn @@ fun () -> Oca_lib.scan_tpxz_archive logdir) in
+            let files = Utils.Miou_pool.use pool (fun () -> Oca_lib.scan_tpxz_archive logdir) in
             (Logdir (Compressed, float_of_string time, hash, workdir, files))
         | _ -> assert false
         end
@@ -93,7 +90,7 @@ let logdir_get_content ~comp ~state ~pkg = function
       let comp = Intf.Compiler.to_string comp in
       let state = Intf.State.to_string state in
       let file = base_logdir workdir/get_logdir_name logdir/comp/state/pkg in
-      await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string file) (Lwt_io.read ?count:None)
+      Utils.with_in (Fpath.to_string file) Utils.read_all
   | Logdir (Compressed, _, _, workdir, _) as logdir ->
       let archive = base_logdir workdir/get_logdir_name logdir+"txz" in
       let comp = Intf.Compiler.to_string comp in
@@ -124,7 +121,7 @@ let logdir_move ~switches (Logdir (ty, _, _, workdir, _) as logdir) = match ty w
   | Uncompressed ->
       let tmplogdir = tmplogdir logdir in
       let logdir = base_logdir workdir/get_logdir_name logdir in
-      await @@ Lwt_unix.rename (Fpath.to_string tmplogdir) (Fpath.to_string logdir)
+      Unix.rename (Fpath.to_string tmplogdir) (Fpath.to_string logdir)
 
 let ilogdir workdir = workdir/"ilogs"
 let new_ilogfile ~start_time workdir = ilogdir workdir/Printf.sprintf "%.0f" start_time

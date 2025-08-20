@@ -1,7 +1,5 @@
-let await = Lwt_direct.await
 let fmt = Printf.sprintf
 let ( // ) = Filename.concat
-let ( >>!= ) = Lwt_result.bind
 
 (* UID/GID of the user "opam" in the ocaml/opam images *)
 let uid = 1000
@@ -57,7 +55,6 @@ module Docker_img_hashtbl = Hashtbl.Make (String)
 let docker_img_hashtbl = Docker_img_hashtbl.create 1
 
 let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
-  Lwt_direct.spawn @@ fun () ->
   let base_dockerfile = Format.sprintf "%a" Dockerfile.pp base_dockerfile in
   let timeout = Server_configfile.job_timeout conf in
   let tag, volumes =
@@ -65,17 +62,18 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
     | None ->
         let dockerfile_hash = String.hash base_dockerfile in
         let tag = fmt "opam-health-check-%s-%d" (Server_configfile.name conf) dockerfile_hash in
-        let stdin, fd = Lwt_unix.pipe () in
-        let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
-        Lwt_unix.set_close_on_exec fd;
+        let stdin, fd = Unix.pipe () in
+        let stdin = `FD_move (Miou_unix.of_file_descr stdin) in
+        Unix.set_close_on_exec fd;
+        let fd = Miou_unix.of_file_descr fd in
         let proc =
-          Lwt_direct.spawn @@ fun () ->
+          Miou.async @@ fun () ->
           Oca_lib.exec ~timeout ~stdin ~stdout ~stderr:stdout ~cidfile:None
             ["docker";"buildx";"build";"--progress=plain";"-t";tag;"-"]
         in
         let () = Oca_lib.write_line fd base_dockerfile in
-        let () = await @@ Lwt_unix.close fd in
-        begin match await @@ proc with
+        let () = Miou_unix.close fd in
+        begin match Miou.await_exn proc with
         | Ok () ->
             let volumes =
               List.fold_left (fun acc (volume, path, init) ->
@@ -100,29 +98,31 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
         in
         (tag, volumes)
   in
-  let stdin, fd = Lwt_unix.pipe () in
-  let stdin = `FD_move (Lwt_unix.unix_file_descr stdin) in
-  Lwt_unix.set_close_on_exec fd;
-  await @@ Lwt_io.with_temp_dir @@ fun ciddir ->
-  Lwt_direct.spawn @@ fun () ->
+  let stdin, fd = Unix.pipe () in
+  let stdin = `FD_move (Miou_unix.of_file_descr stdin) in
+  Unix.set_close_on_exec fd;
+  let fd = Miou_unix.of_file_descr fd in
+  Oca_lib.with_temp_dir @@ fun ciddir ->
   let proc =
     let cidfile = ciddir//"cidfile" in
     Oca_lib.exec ~timeout ~stdin ~stdout ~stderr:stdout ~cidfile:(Some cidfile)
       (["docker";"run";"--rm";"--memory";max_ram_per_job;"--network=none";"--cidfile";cidfile]@volumes@["-i";tag])
   in
   let () = Oca_lib.write_line fd cmd in
-  let () = await @@ Lwt_unix.close fd in
+  let () = Miou_unix.close fd in
   proc
 
 let exec_out ~fexec ~fout =
-  let stdin, stdout = Lwt_unix.pipe () in
+  let stdin, stdout = Unix.pipe () in
+  let stdin = Miou_unix.of_file_descr stdin in
+  let stdout = Miou_unix.of_file_descr stdout in
   let proc =
-    Lwt_direct.spawn @@ fun () ->
-    Fun.protect (fun () -> await @@ fexec ~stdout) ~finally:(fun () -> await @@ Lwt_unix.close stdout)
+    Miou.async @@ fun () ->
+    Fun.protect (fun () -> fexec ~stdout) ~finally:(fun () -> Miou_unix.close stdout)
   in
   let res = fout ~stdin in
-  let () = await @@ Lwt_unix.close stdin in
-  let r = await @@ proc in
+  let () = Miou_unix.close stdin in
+  let r = Miou.await_exn proc in
   (r, res)
 
 let docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~default c =
@@ -160,10 +160,9 @@ let failure_kind conf ~pkg logfile =
     | None -> Fmt.failwith "Package %S could not be parsed" pkg
   in
   let timeout = Server_configfile.job_timeout conf in
-  await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string logfile) begin fun ic ->
-    Lwt_direct.spawn @@ fun () ->
+  Utils.with_in (Fpath.to_string logfile) begin fun ic ->
     let rec lookup res =
-      match await @@ Lwt_io.read_line_opt ic with
+      match Oca_lib.read_line_opt ic with
       | Some "+- The following actions failed" -> lookup `Failure
       | Some "+- The following actions were aborted" -> `Partial
       | Some line when String.equal ("[ERROR] No package named "^pkgname^" found.") line ||
@@ -222,33 +221,32 @@ exit $res
 |} pkg (Server_configfile.platform_distribution conf) pkg (with_test ~conf pkg) (with_lower_bound ~conf pkg)
 
 let run_job ~conf ~max_ram_per_job ~pool ~stderr ~base_dockerfile ~switch ~num logdir pkg =
-  Lwt_pool.use pool begin fun () ->
-    Lwt_direct.spawn @@ fun () ->
+  Utils.Miou_pool.use pool begin fun () ->
     let () = Oca_lib.write_line stderr ("["^num^"] Checking "^pkg^" on "^Intf.Switch.switch switch^"…") in
     let switch = Intf.Switch.name switch in
     let logfile = Server_workdirs.tmplogfile ~pkg ~switch logdir in
-    match await @@
+    match
       Oca_lib.with_file Unix.[O_WRONLY; O_CREAT; O_TRUNC] 0o640 (Fpath.to_string logfile) (fun stdout ->
         docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout (run_script ~conf pkg)
       )
     with
     | Ok () ->
         let () = Oca_lib.write_line stderr ("["^num^"] succeeded.") in
-        await @@ Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpgoodlog ~pkg ~switch logdir))
+        Unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpgoodlog ~pkg ~switch logdir))
     | Error () ->
         begin match failure_kind conf ~pkg logfile with
         | `Partial ->
             let () = Oca_lib.write_line stderr ("["^num^"] finished with a partial failure.") in
-            await @@ Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmppartiallog ~pkg ~switch logdir))
+            Unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmppartiallog ~pkg ~switch logdir))
         | `Failure ->
             let () = Oca_lib.write_line stderr ("["^num^"] failed.") in
-            await @@ Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpbadlog ~pkg ~switch logdir))
+            Unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpbadlog ~pkg ~switch logdir))
         | `NotAvailable ->
             let () = Oca_lib.write_line stderr ("["^num^"] finished with not available.") in
-            await @@ Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpnotavailablelog ~pkg ~switch logdir))
+            Unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpnotavailablelog ~pkg ~switch logdir))
         | `Other | `AcceptFailures | `Timeout ->
             let () = Oca_lib.write_line stderr ("["^num^"] finished with an internal failure.") in
-            await @@ Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpinternalfailurelog ~pkg ~switch logdir))
+            Unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpinternalfailurelog ~pkg ~switch logdir))
         end
   end
 
@@ -422,8 +420,8 @@ let get_metadata ~debug ~conf ~max_ram_per_job ~jobs ~pool ~stderr logdir (_, ba
     let module Set = Set.Make(String) in
     let revdeps = Set.of_list revdeps in
     let revdeps = Set.remove pkgname revdeps in (* https://github.com/ocaml/opam/issues/4446 *)
-    await @@ Lwt_io.with_file ~mode:Lwt_io.output (Fpath.to_string (Server_workdirs.tmprevdepsfile ~pkg logdir)) (fun c ->
-      Lwt_io.write c (string_of_int (Set.cardinal revdeps))
+    Utils.with_out (Fpath.to_string (Server_workdirs.tmprevdepsfile ~pkg logdir)) (fun c ->
+      Miou_unix.write c (string_of_int (Set.cardinal revdeps))
     )
   in
   let get_latest_metadata ~base_dockerfile ~pkgname ~logdir = (* TODO: Get this locally by merging all the repository and parsing the opam files using opam-core *)
@@ -431,15 +429,14 @@ let get_metadata ~debug ~conf ~max_ram_per_job ~jobs ~pool ~stderr logdir (_, ba
       docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~default:(Some [])
         ("opam show --raw "^Filename.quote pkgname)
     in
-    await @@ Lwt_io.with_file ~mode:Lwt_io.output (Fpath.to_string (Server_workdirs.tmpopamfile ~pkg:pkgname logdir)) (fun c ->
-      Lwt_io.write c (String.concat "\n" opam)
+    Utils.with_out (Fpath.to_string (Server_workdirs.tmpopamfile ~pkg:pkgname logdir)) (fun c ->
+      Miou_unix.write c (String.concat "\n" opam)
     )
   in
   Pkg_set.fold begin fun full_name (pkgs_set, jobs) ->
     let pkgname = Intf.Pkg.name (Intf.Pkg.create ~full_name ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) in (* TODO: Remove this horror *)
     let job =
-      Lwt_pool.use pool begin fun () ->
-        Lwt_direct.spawn @@ fun () ->
+      Utils.Miou_pool.use pool begin fun () ->
         let () = Oca_lib.write_line stderr ("Getting metadata for "^full_name) in
         let () = get_revdeps ~base_dockerfile ~pkgname ~pkg:full_name ~logdir in
         if Pkg_set.mem pkgname pkgs_set then () else get_latest_metadata ~base_dockerfile ~pkgname ~logdir
@@ -452,7 +449,8 @@ let get_commit_hash github =
   let user = Intf.Github.user github in
   let repo = Intf.Github.repo github in
   let branch = Intf.Github.branch github in
-  let r = await @@
+  let r =
+    Lwt_main.run @@
     Github.Monad.run begin
       let ( >>= ) = Github.Monad.( >>= ) in
       Github.Repo.info ~user ~repo () >>= fun info ->
@@ -486,7 +484,7 @@ let move_tmpdirs_to_final ~switches logdir workdir =
   let switches = List.map Intf.Switch.name switches in
   let () = Server_workdirs.logdir_move ~switches logdir in
   let () = Oca_lib.rm_rf metadatadir in
-  let () = await @@ Lwt_unix.rename (Fpath.to_string tmpmetadatadir) (Fpath.to_string metadatadir) in
+  let () = Unix.rename (Fpath.to_string tmpmetadatadir) (Fpath.to_string metadatadir) in
   Oca_lib.rm_rf tmpdir
 
 let run_jobs ~conf ~max_ram_per_job ~pool ~stderr logdir switches pkgs =
@@ -539,7 +537,7 @@ let is_running () = !run_locked
 let wait_current_run_to_finish =
   let rec loop () =
     if is_running () then
-      let () = await @@ Lwt_unix.sleep 1. in
+      let () = Miou_unix.sleep 1. in
       loop ()
     else
       ()
@@ -619,8 +617,8 @@ let run ~debug ~on_finished ~conf cache workdir =
   if !run_locked then
     failwith "operation locked";
   run_locked := true;
-  Lwt.async begin fun () -> Lwt.finalize begin fun () ->
-    Lwt_direct.spawn @@ fun () ->
+  Miou.async @@ fun () ->
+  Fun.protect ~finally:(fun () -> run_locked := false) begin fun () ->
     let start_time = Unix.time () in
     with_stderr ~start_time workdir begin fun ~stderr ->
       try
@@ -648,14 +646,14 @@ let run ~debug ~on_finished ~conf cache workdir =
             let new_logdir = Server_workdirs.new_logdir ~compressed ~hash:opam_repo_commit ~start_time workdir in
             let () = Server_workdirs.init_base_jobs ~switches:switches' new_logdir in
             let number_of_jobs = Server_configfile.processes conf in
-            let pool = Lwt_pool.create number_of_jobs (fun () -> Lwt.return ()) in
+            let pool = Utils.Miou_pool.create number_of_jobs (fun () -> ()) in
             let max_ram_per_job = get_max_ram_per_job ~number_of_jobs in
             let pkgs = List.map (get_pkgs ~debug ~max_ram_per_job ~stderr ~conf) switches in
             let pkgs = Pkg_set.of_list (List.concat pkgs) in
             let () = Oca_lib.timer_log timer stderr "Initialization" in
             let (_, jobs) = run_jobs ~conf ~max_ram_per_job ~pool ~stderr new_logdir switches pkgs in
             let (_, jobs) = get_metadata ~debug ~conf ~max_ram_per_job ~jobs ~pool ~stderr new_logdir switch pkgs in
-            let () = await @@ Lwt.join jobs in
+            let () = List.iter (function Ok () -> () | Error e -> raise e) (Miou.await_all jobs) in
             let () = Oca_lib.timer_log timer stderr "Operation" in
             let () = Oca_lib.write_line stderr "Finishing up…" in
             let () = move_tmpdirs_to_final ~switches:switches' new_logdir workdir in
@@ -671,5 +669,4 @@ let run ~debug ~on_finished ~conf cache workdir =
           let () = Oca_lib.write stderr (Printexc.get_backtrace ()) in
           prerr_endline "The current run failed unexpectedly. Please check the latest log using: opam-health-check log"
     end
-  end (fun () -> run_locked := false; Lwt.return ()) end;
-  ()
+  end

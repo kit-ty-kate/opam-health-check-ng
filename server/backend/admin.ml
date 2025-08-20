@@ -1,9 +1,7 @@
-let await = Lwt_direct.await
 let ( // ) = Fpath.( / )
 
 let with_file_out ~flags file f =
-  let flags = Unix.O_WRONLY::Unix.O_CREAT::Unix.O_TRUNC::Unix.O_NONBLOCK::flags in
-  await @@ Lwt_io.with_file ~flags ~mode:Lwt_io.Output file f
+  Utils.with_out file f
 
 let is_username_char = function
   | 'a'..'z' -> true
@@ -37,23 +35,25 @@ let get_log workdir =
   let logs = List.sort String.compare logs in
   let logfile = Option.get_exn_or "no last log" (List.last_opt logs) in
   let logfile = ilogdir // logfile in
-  let fd = await @@ Lwt_unix.openfile (Fpath.to_string logfile) Unix.[O_RDONLY] 0o644 in
+  let fd = Unix.openfile (Fpath.to_string logfile) Unix.[O_RDONLY] 0o644 in
+  let fd = Miou_unix.of_file_descr fd in
   let off = ref 0 in
   let rec loop () =
     let is_running = Check.is_running () in
-    let new_off = await @@ Lwt_unix.lseek fd 0 Unix.SEEK_END in
+    Miou.yield ();
+    let new_off = Unix.lseek (Miou_unix.to_file_descr fd) 0 Unix.SEEK_END in
     if new_off < 0 then
       assert false
     else if !off < new_off then begin
-      let _ = await @@ Lwt_unix.lseek fd !off Unix.SEEK_SET in
+      let _ = Unix.lseek (Miou_unix.to_file_descr fd) !off Unix.SEEK_SET in
       let len = new_off - !off in
       let buf = Bytes.create len in
-      let _ = await @@ Lwt_unix.read fd buf 0 len in
+      let _ = Miou_unix.read fd buf ~off:0 ~len in
       off := new_off;
       (Some (Bytes.to_string buf))
     end else if is_running then begin
       off := new_off;
-      let () = await @@ Lwt_unix.sleep 1. in
+      let () = Miou_unix.sleep 1. in
       loop ()
     end else
       None
@@ -103,7 +103,7 @@ let admin_action ~on_finished ~conf ~run_trigger workdir body =
         let () = Server_configfile.set_list_command conf cmd in
         (fun () -> None)
     | ["run"] ->
-        let () = await @@ Lwt_mvar.put run_trigger () in
+        let () = Utils.Miou_mvar.put run_trigger () in
         (fun () -> None)
     | ["add-user";username] ->
         let () = create_userkey workdir username in
@@ -125,7 +125,7 @@ let is_bzero = function
 
 let get_user_key workdir user =
   let keyfile = get_keyfile workdir user in
-  let key = await @@ Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string keyfile) (Lwt_io.read ?count:None) in
+  let key = Utils.with_in (Fpath.to_string keyfile) Utils.read_all in
     (match X509.Private_key.decode_pem key with
      | Ok `RSA key -> key
      | Ok _ -> failwith "unsupported key type, only RSA supported"

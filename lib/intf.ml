@@ -101,7 +101,7 @@ module Repository = struct
 end
 
 module Log = struct
-  type t = (unit -> string Lwt.t)
+  type t = (unit -> string Miou.t)
 
   let create f = f
 

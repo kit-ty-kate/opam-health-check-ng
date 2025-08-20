@@ -1,6 +1,6 @@
 module Server = Oca_server.Server.Make (Backend)
 
-let main debug workdir = Lwt_main.run (Lwt_direct.spawn (fun () -> Server.main ~debug ~workdir))
+let main debug workdir = Miou_unix.run (fun () -> Server.main ~debug ~workdir)
 
 (* Command-line parsing *)
 
