@@ -82,9 +82,9 @@ let create () = ref (Miou.async (fun () -> create_data ()))
 let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
   let timer = Oca_lib.timer_start () in
   let self = create_data () in
-  let mvar = Utils.Miou_mvar.create_empty () in
+  let trigger = Miou_sync.Trigger.create () in
   r_self := Miou.async (fun () ->
-    let () = Miou.await_exn @@ Utils.Miou_mvar.take mvar in
+    Option.iter (fun (exn, bt) -> Printexc.raise_with_backtrace exn bt) (Miou_sync.Trigger.await trigger);
     self
   );
   self.opams <- Miou.async opams;
@@ -116,7 +116,7 @@ let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
   let _ = Miou.await_exn self.revdeps in
   let _ = Miou.await_exn self.logdirs in
   let _ = Miou.await_exn self.compilers in
-  let () = Miou.await_exn @@ Utils.Miou_mvar.put mvar () in
+  Miou_sync.Trigger.signal trigger;
   let _ = Miou.await_exn self.pkgs in
   Oca_lib.timer_log timer (Miou_unix.of_file_descr Unix.stderr) "Cache prefetching"
 

@@ -93,7 +93,7 @@ let admin_action ~on_finished ~conf ~run_trigger workdir reqd body =
     | ["set-list-command";cmd] ->
         Server_configfile.set_list_command conf cmd
     | ["run"] ->
-        Utils.Miou_mvar.put run_trigger ()
+        Miou_sync.Trigger.signal run_trigger
     | ["add-user";username] ->
         create_userkey workdir username
     | ["clear-cache"] ->

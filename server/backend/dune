@@ -4,6 +4,7 @@
     unix
     miou
     miou.unix
+    miou.sync
     httpcats
     h1
     h2

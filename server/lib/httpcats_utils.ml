@@ -1,10 +1,18 @@
 let drain_body = function
-  | `V1 _reqd -> assert false
-  | `V2 _reqd -> assert false
+  | `V1 reqd ->
+      let reader = H1.Reqd.request_body reqd in
+      H1.Body.Reader.close reader
+  | `V2 reqd ->
+      let reader = H2.Reqd.request_body reqd in
+      H2.Body.Reader.close reader
 
 let target = function
-  | `V1 _reqd -> assert false
-  | `V2 _reqd -> assert false
+  | `V1 reqd ->
+      let req = H1.Reqd.request reqd in
+      req.H1.Request.target
+  | `V2 reqd ->
+      let req = H2.Reqd.request reqd in
+      req.H2.Request.target
 
 let respond ~status reqd body =
   let headers, body = match body with
@@ -53,8 +61,7 @@ let respond_stream ~status reqd f =
       f (fun x -> H2.Body.Writer.write_string writer x);
       H2.Body.Writer.close writer
 
-let read_body reqd =
-  match reqd with
+let read_body = function
   | `V1 reqd ->
       let reader = H1.Reqd.request_body reqd in
       let buf = Buffer.create 4096 in

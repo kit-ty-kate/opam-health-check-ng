@@ -5,6 +5,7 @@
     unix
     miou
     miou.unix
+    miou.sync
     bigstringaf
     h1
     h2

@@ -112,7 +112,10 @@ let run_action_loop ~conf ~run_trigger f =
     let action =
       try
         let run_interval = Server_configfile.auto_run_interval conf * 60 * 60 in
-        let manual_run = Utils.Miou_mvar.take run_trigger in
+        let manual_run =
+          Miou.async @@ fun () ->
+          Option.iter (fun (exn, bt) -> Printexc.raise_with_backtrace exn bt) (Miou_sync.Trigger.await run_trigger)
+        in
         if run_interval > 0 then
           let regular_run =
             Miou.async @@ fun () ->
@@ -140,7 +143,7 @@ let start ~debug conf workdir =
   let cache = Lazy.force cache in
   let port = Server_configfile.admin_port conf in
   let on_finished = cache_clear_and_init in
-  let run_trigger = Utils.Miou_mvar.create_empty () in
+  let run_trigger = Miou_sync.Trigger.create () in
   let callback = Admin.callback ~on_finished ~conf ~run_trigger workdir in
   cache_clear_and_init workdir;
   Mirage_crypto_rng_unix.use_default ();

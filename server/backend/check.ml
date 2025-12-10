@@ -534,8 +534,11 @@ let trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf =
     | Ok (resp, body) ->
         let resp = Format.sprintf "%a" Httpcats.pp_response resp in
         Oca_lib.write_line stderr (fmt "Webhook returned failure: %s\nBody: %s" resp body)
+    | Error (`V1 _) -> Oca_lib.write_line stderr "HTTP/1 failure"
+    | Error (`V2 _) -> Oca_lib.write_line stderr "HTTP/2 failure"
+    | Error (`Protocol proto) -> Oca_lib.write_line stderr ("Protocol failure: "^proto)
     | Error (`Msg msg) -> Oca_lib.write_line stderr ("Webhook failed with: "^msg)
-    | Error _ -> assert false (* TODO *)
+    | Error (`Exn exn) -> raise exn
   end
 
 let run_locked = ref false

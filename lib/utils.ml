@@ -6,8 +6,23 @@ let with_file flags mode filename f =
 let with_in file f = with_file [Unix.O_RDONLY] 0o640 file f
 let with_out file f = with_file [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_TRUNC] 0o640 file f
 
-let read_all _fd =
-  assert false (* TODO *)
+let read_all fd =
+  let buf_len = 4096 in
+  let final_buf = Buffer.create buf_len in
+  let buf = Bytes.create buf_len in
+  let rec loop () =
+    let n = Miou_unix.read fd buf in
+    if n = 0 then
+      Buffer.contents final_buf
+    else if Int.equal n buf_len then begin
+      Buffer.add_bytes final_buf buf;
+      loop ()
+    end else begin
+      Buffer.add_subbytes final_buf buf 0 n;
+      loop ()
+    end
+  in
+  loop ()
 
 module Miou_process = struct
   type redirection = [
@@ -33,19 +48,6 @@ module Miou_pool = struct
     assert false (* TODO *)
 
   let use _pool _f =
-    assert false (* TODO *)
-end
-
-module Miou_mvar = struct
-  type 'a t
-
-  let create_empty () =
-    assert false (* TODO *)
-
-  let take _mvar =
-    assert false (* TODO *)
-
-  let put _mvar _x =
     assert false (* TODO *)
 end
 
