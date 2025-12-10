@@ -1,6 +1,6 @@
 type t = Server_workdirs.t
 
-let cache = Oca_server.Cache.create ()
+let cache = Lazy.from_fun Oca_server.Cache.create
 
 let get_compilers logdir =
   let compilers = Server_workdirs.logdir_get_compilers logdir in
@@ -34,6 +34,7 @@ let fill_pkgs_from_dir ~pool pkg_tbl logdir comp =
   ()
 
 let add_pkg full_name instances acc =
+  let cache = Lazy.force cache in
   let pkg = Intf.Pkg.name (Intf.Pkg.create ~full_name ~instances:[] ~opam:OpamFile.OPAM.empty ~revdeps:0) in (* TODO: Remove this horror *)
   let opam = Oca_server.Cache.get_opam cache pkg in
   let revdeps = Oca_server.Cache.get_revdeps cache full_name in
@@ -46,6 +47,7 @@ let get_pkgs ~pool ~compilers logdir =
   List.sort Intf.Pkg.compare pkgs
 
 let get_log _ ~logdir ~comp ~state ~pkg =
+  let cache = Lazy.force cache in
   let pkgs = Oca_server.Cache.get_pkgs ~logdir cache in
   match List.find_opt (fun p -> String.equal pkg (Intf.Pkg.full_name p)) pkgs with
   | None -> None
@@ -95,6 +97,7 @@ let tcp_server port handler =
   Httpcats.Server.clear ~handler (Unix.ADDR_INET (Unix.inet_addr_loopback, port))
 
 let cache_clear_and_init workdir =
+  let cache = Lazy.force cache in
   let pool = Utils.Miou_pool.create 64 (fun () -> ()) in
   Oca_server.Cache.clear_and_init
     cache
@@ -134,6 +137,7 @@ let run_action_loop ~conf ~run_trigger f =
   loop (Miou.async (fun () -> ()))
 
 let start ~debug conf workdir =
+  let cache = Lazy.force cache in
   let port = Server_configfile.admin_port conf in
   let on_finished = cache_clear_and_init in
   let run_trigger = Utils.Miou_mvar.create_empty () in

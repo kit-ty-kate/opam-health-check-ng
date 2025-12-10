@@ -3,7 +3,7 @@ type task = unit -> unit Miou.t
 module type S = sig
   type t
 
-  val cache : Cache.t
+  val cache : Cache.t Lazy.t
 
   val get_log : t -> logdir:Server_workdirs.logdir -> comp:Intf.Compiler.t -> state:Intf.State.t -> pkg:string -> string option
 
