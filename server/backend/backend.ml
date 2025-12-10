@@ -160,4 +160,4 @@ let start ~debug conf workdir =
       ) ()
     )
   in
-  (workdir, task)
+  (workdir, task, fun () -> Oca_server.Cache.destroy cache)

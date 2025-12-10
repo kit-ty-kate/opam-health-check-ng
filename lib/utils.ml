@@ -45,7 +45,7 @@ end
 
 module Miou_pool = struct
   let create _n _f =
-    assert false (* TODO *)
+    () (* TODO *)
 
   let use _pool _f =
     assert false (* TODO *)

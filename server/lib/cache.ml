@@ -79,10 +79,14 @@ let create_data () = {
 
 let create () = ref (Miou.async (fun () -> create_data ()))
 
+let destroy r_self =
+  Miou.cancel !r_self
+
 let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
   let timer = Oca_lib.timer_start () in
   let self = create_data () in
   let trigger = Miou_sync.Trigger.create () in
+  Miou.cancel !r_self;
   r_self := Miou.async (fun () ->
     Option.iter (fun (exn, bt) -> Printexc.raise_with_backtrace exn bt) (Miou_sync.Trigger.await trigger);
     self

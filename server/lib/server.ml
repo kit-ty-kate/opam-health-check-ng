@@ -162,10 +162,14 @@ module Make (Backend : Backend_intf.S) = struct
     let () = Server_workdirs.init_base workdir in
     let conf = Server_configfile.from_workdir workdir in
     let port = Server_configfile.port conf in
-    let (backend, backend_task) = Backend.start ~debug conf workdir in
+    let (backend, backend_task, finalizer) = Backend.start ~debug conf workdir in
     List.iter (function Ok () -> () | Error e -> raise e) @@
-    Miou.await_all [
-      tcp_server port (callback ~conf backend);
-      backend_task ();
-    ]
+    let res =
+      Miou.await_all [
+        tcp_server port (callback ~conf backend);
+        backend_task ();
+      ]
+    in
+    finalizer ();
+    res
 end

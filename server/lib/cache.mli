@@ -4,6 +4,7 @@ module Revdeps_cache : Map.S with type key = string
 type t
 
 val create : unit -> t
+val destroy : t -> unit
 
 val clear_and_init :
   t ->
