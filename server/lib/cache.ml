@@ -91,9 +91,13 @@ let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
     Option.iter (fun (exn, bt) -> Printexc.raise_with_backtrace exn bt) (Miou_sync.Trigger.await trigger);
     self
   );
+  Miou.cancel self.opams;
   self.opams <- Miou.async opams;
+  Miou.cancel self.revdeps;
   self.revdeps <- Miou.async revdeps;
+  Miou.cancel self.logdirs;
   self.logdirs <- Miou.async logdirs;
+  Miou.cancel self.compilers;
   self.compilers <- Miou.async (fun () ->
     let logdirs = Miou.await_exn self.logdirs in
     List.map (fun logdir ->
@@ -101,6 +105,7 @@ let clear_and_init r_self ~pkgs ~compilers ~logdirs ~opams ~revdeps =
       (logdir, c)
     ) logdirs
   );
+  Miou.cancel self.pkgs;
   self.pkgs <- Miou.async (fun () ->
     let compilers = Miou.await_exn self.compilers in
     List.mapi (fun i (logdir, compilers) ->
@@ -206,6 +211,7 @@ let get_html ~conf self query logdir =
     let (pkgs, _) = List.fold_left (filter_pkg ~logsearch query) ([], None) (List.rev pkgs) in
     let pkgs = if query.Html.sort_by_revdeps then List.sort revdeps_cmp pkgs else pkgs in
     let html = Html.get_html ~logdir ~conf query pkgs in
+    Miou.cancel logsearch;
     html
   in
   let pkgs = Miou.await_exn self.pkgs in
