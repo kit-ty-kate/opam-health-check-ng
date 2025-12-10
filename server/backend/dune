@@ -5,6 +5,8 @@
     miou
     miou.unix
     httpcats
+    h1
+    h2
     oca_lib
     fmt
     uri
@@ -19,9 +21,10 @@
     opam-format
     dockerfile
     github
-    github-unix
     github-data
+    lwt
     lwt.unix
+    cohttp-lwt-unix
     x509
     mirage-crypto-pk
     mirage-crypto-rng.unix))

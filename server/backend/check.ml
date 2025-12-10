@@ -1,3 +1,16 @@
+module Github =
+  Github_core.Make
+    (struct
+      let debug = match Sys.getenv_opt "GITHUB_DEBUG" with
+        | Some "0" | None -> false
+        | Some _ -> true
+    end)
+    (struct
+      let now = Unix.gettimeofday
+      let sleep = Lwt_unix.sleep
+    end)
+    (Cohttp_lwt_unix.Client)
+
 let fmt = Printf.sprintf
 let ( // ) = Filename.concat
 
@@ -248,13 +261,6 @@ let run_job ~conf ~max_ram_per_job ~pool ~stderr ~base_dockerfile ~switch ~num l
             let () = Oca_lib.write_line stderr ("["^num^"] finished with an internal failure.") in
             Unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpinternalfailurelog ~pkg ~switch logdir))
         end
-  end
-
-let () =
-  Lwt.async_exception_hook := begin fun e ->
-    prerr_endline ("Async exception raised: "^Printexc.to_string e);
-    prerr_string (Printexc.get_backtrace ());
-    flush stderr;
   end
 
 let get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch =
@@ -514,20 +520,22 @@ let trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf =
   Server_configfile.slack_webhooks conf |>
   List.iter begin fun webhook ->
     let () = Oca_lib.write_line stderr ("Triggering Slack webhook "^Uri.to_string webhook) in
-    match await @@
-      Http_lwt_client.request
-        ~config:(`HTTP_1_1 Httpaf.Config.default) (* TODO: Remove this when https://github.com/roburio/http-lwt-client/issues/7 is fixed *)
+    match
+      Httpcats.request
         ~meth:`POST
         ~headers:[("Content-type", "application/json")]
-        ~body
-        (Uri.to_string webhook)
-        (fun _resp acc x -> Lwt.return (acc ^ x)) ""
+        ~body:(Httpcats.String body)
+        ~uri:(Uri.to_string webhook)
+        ~fn:(fun _meta _req _resp acc -> function
+           | None -> acc
+           | Some x -> acc ^ x) ""
     with
-    | Ok ({Http_lwt_client.status = `OK; _}, _body) -> ()
+    | Ok ({Httpcats.status = `OK; _}, _body) -> ()
     | Ok (resp, body) ->
-        let resp = Format.sprintf "%a" Http_lwt_client.pp_response resp in
+        let resp = Format.sprintf "%a" Httpcats.pp_response resp in
         Oca_lib.write_line stderr (fmt "Webhook returned failure: %s\nBody: %s" resp body)
     | Error (`Msg msg) -> Oca_lib.write_line stderr ("Webhook failed with: "^msg)
+    | Error _ -> assert false (* TODO *)
   end
 
 let run_locked = ref false
@@ -558,10 +566,11 @@ let update_docker_image conf =
       (* TODO: Detect variant too? *)
     in
     let manifests =
-      Docker_hub.Token.fetch name >>!=
+      let ( >>= ) = Result.( >>= ) in
+      Docker_hub.Token.fetch name >>=
       Docker_hub.Manifests.fetch tag
     in
-    match await @@ manifests with
+    match manifests with
     | Ok manifests ->
         let elements = Docker_hub.Manifests.elements manifests in
         begin match List.find_opt is_correct_platform elements with
@@ -575,7 +584,7 @@ let update_docker_image conf =
        let e = match e with
          | `Api_error (response, body) ->
              Format.asprintf "response: %a, body: %a"
-               Http_lwt_client.pp_response response
+               Httpcats.pp_response response
                (Option.pp String.pp) body
          | `Malformed_json str -> fmt "malformed json %S" str
          | `Msg str -> str

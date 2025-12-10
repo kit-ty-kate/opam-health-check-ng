@@ -5,7 +5,6 @@ val callback :
   conf:Server_configfile.t ->
   run_trigger:unit Utils.Miou_mvar.t ->
   Server_workdirs.t ->
-  Cohttp_lwt_unix.Server.conn ->
-  Cohttp.Request.t ->
-  Cohttp_lwt.Body.t ->
-  (Cohttp.Response.t * Cohttp_lwt.Body.t)
+  _ ->
+  [< `V1 of H1.Reqd.t | `V2 of H2.Reqd.t ] ->
+  unit

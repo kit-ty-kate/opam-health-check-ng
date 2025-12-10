@@ -57,7 +57,7 @@ let get_log _ ~logdir ~comp ~state ~pkg =
       match List.find_opt is_instance (Intf.Pkg.instances pkg) with
       | None -> None
       | Some instance ->
-          let content = await @@ Intf.Instance.content instance in
+          let content = Miou.await_exn @@ Intf.Instance.content instance in
           Some content
 
 let get_opams workdir =
@@ -91,11 +91,8 @@ let get_revdeps workdir =
   revdeps
 
 (* TODO: Deduplicate with Server.tcp_server *)
-let tcp_server port callback =
-  Cohttp_lwt_unix.Server.create
-    ~on_exn:(fun _ -> ())
-    ~mode:(`TCP (`Port port))
-    (Cohttp_lwt_unix.Server.make ~callback ())
+let tcp_server port handler =
+  Httpcats.Server.clear ~handler (Unix.ADDR_INET (Unix.inet_addr_loopback, port))
 
 let cache_clear_and_init workdir =
   let pool = Utils.Miou_pool.create 64 (fun () -> ()) in
@@ -111,23 +108,26 @@ let run_action_loop ~conf ~run_trigger f =
   let rec loop previous_action =
     let action =
       try
-        let regular_run =
-          Miou.async @@ fun () ->
-          let run_interval = Server_configfile.auto_run_interval conf * 60 * 60 in
-          if run_interval > 0 then
+        let run_interval = Server_configfile.auto_run_interval conf * 60 * 60 in
+        let manual_run = Utils.Miou_mvar.take run_trigger in
+        if run_interval > 0 then
+          let regular_run =
+            Miou.async @@ fun () ->
             let () = Miou_unix.sleep (float_of_int run_interval) in
             Check.wait_current_run_to_finish ()
-          else
-            await @@ fst (Miou.wait ())
-        in
-        let manual_run = Utils.Miou_mvar.take run_trigger in
-        let () = await @@ Lwt.pick [regular_run; manual_run] in
+          in
+          match Miou.await_first [regular_run; manual_run] with
+          | Ok () -> ()
+          | Error e -> raise e
+        else
+          Miou.await_exn manual_run;
         Miou.await_exn previous_action;
         f ()
       with e ->
         let msg = Printexc.to_string e in
-        let () = await @@ Lwt_io.write_line Lwt_io.stderr ("Exception raised in action loop: "^msg) in
-        await @@ Lwt_io.write_line Lwt_io.stderr (Printexc.get_backtrace ())
+        prerr_endline ("Exception raised in action loop: "^msg);
+        prerr_endline (Printexc.get_backtrace ());
+        previous_action
     in
     loop action
   in
@@ -142,9 +142,15 @@ let start ~debug conf workdir =
   Mirage_crypto_rng_unix.use_default ();
   let () = Admin.create_admin_key workdir in
   let task () =
-    Lwt.join [
-      tcp_server port callback;
-      run_action_loop ~conf ~run_trigger (fun () -> Check.run ~debug ~on_finished ~conf cache workdir);
-    ]
+    Miou.async (fun () ->
+      Miou.await_all [
+        Miou.async (fun () -> tcp_server port callback);
+        run_action_loop ~conf ~run_trigger (fun () -> Check.run ~debug ~on_finished ~conf cache workdir);
+      ] |>
+      List.fold_left (fun () -> function
+        | Ok () -> ()
+        | Error exn -> raise exn
+      ) ()
+    )
   in
   (workdir, task)

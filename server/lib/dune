@@ -5,6 +5,10 @@
     unix
     miou
     miou.unix
+    bigstringaf
+    h1
+    h2
+    httpcats
     tyxml
     tyxml.functor
     opam-format
