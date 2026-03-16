@@ -1,8 +1,4 @@
 module Make (Backend : Backend_intf.S) = struct
-  let serv_text ~content_type body =
-    let headers = Cohttp.Header.init_with "Content-Type" content_type in
-    Cohttp_lwt_unix.Server.respond_string ~headers ~status:`OK ~body ()
-
   let option_to_string = function
     | None -> ""
     | Some s -> s
@@ -15,6 +11,7 @@ module Make (Backend : Backend_intf.S) = struct
     List.rev
 
   let parse_raw_query logdir uri =
+    let cache = Lazy.force Backend.cache in
     let checkbox_default def = if List.is_empty (Uri.query uri) then def else false in
     let compilers = get_query_param_list uri "comp" in
     let show_available = get_query_param_list uri "available" in
@@ -38,7 +35,7 @@ module Make (Backend : Backend_intf.S) = struct
       end logsearch (Uri.get_query_param uri "logsearch_comp")
     in
     let logsearch = (option_to_string logsearch, logsearch') in
-    let%lwt available_compilers = Cache.get_compilers ~logdir Backend.cache in
+    let available_compilers = Cache.get_compilers ~logdir cache in
     let compilers = match compilers with
       | [] -> available_compilers
       | compilers -> List.map Intf.Compiler.from_string compilers
@@ -52,7 +49,7 @@ module Make (Backend : Backend_intf.S) = struct
       | [] -> Intf.State.all
       | show_only -> List.map Intf.State.from_string show_only
     in
-    Lwt.return {
+    {
       Html.available_compilers;
       Html.compilers;
       Html.show_available;
@@ -76,109 +73,103 @@ module Make (Backend : Backend_intf.S) = struct
     | path -> filter_path (Fpath.segs (Fpath.v path))
 
   let get_logdir name =
-    let%lwt logdirs = Cache.get_logdirs Backend.cache in
-    Lwt.return (
-      List.find_opt (fun logdir ->
-        String.equal (Server_workdirs.get_logdir_name logdir) name
-      ) logdirs
-    )
+    let cache = Lazy.force Backend.cache in
+    let logdirs = Cache.get_logdirs cache in
+    List.find_opt (fun logdir ->
+      String.equal (Server_workdirs.get_logdir_name logdir) name
+    ) logdirs
 
-  let callback ~conf backend _conn req body_NOT_USED =
-    let%lwt () = Cohttp_lwt.Body.drain_body body_NOT_USED in
-    let uri = Cohttp.Request.uri req in
+  let callback ~conf backend _flow reqd =
+    let cache = Lazy.force Backend.cache in
+    let () = Httpcats_utils.drain_body reqd in
+    (* TODO: support fragments and queries *)
+    let uri = Uri.make ~path:(Httpcats_utils.target reqd) () in
     let get_log ~logdir ~comp ~state ~pkg =
-      match%lwt get_logdir logdir with
+      match get_logdir logdir with
       | None ->
-          Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
+          Httpcats_utils.respond ~status:`Not_found reqd `Empty
       | Some logdir ->
           let comp = Intf.Compiler.from_string comp in
           let state = Intf.State.from_string state in
-          match%lwt Backend.get_log backend ~logdir ~comp ~state ~pkg with
+          match Backend.get_log backend ~logdir ~comp ~state ~pkg with
           | None ->
-              Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
+              Httpcats_utils.respond ~status:`Not_found reqd `Empty
           | Some log ->
               let html = Html.get_log ~comp ~pkg log in
-              serv_text ~content_type:"text/html; charset=utf-8" html
+              Httpcats_utils.respond ~status:`OK reqd (`Html html)
     in
     match path_from_uri uri with
     | [] ->
-        begin match%lwt Cache.get_latest_logdir Backend.cache with
+        begin match Cache.get_latest_logdir cache with
         | None ->
-            serv_text ~content_type:"text/plain"
-              "opam-health-check: no run exist, please wait for the first run \
-               to finish. Please look at the documentation to learn how to \
-               start it.\n"
+            Httpcats_utils.respond ~status:`OK reqd
+              (`Plain_text
+                 "opam-health-check: no run exist, please wait for the first run \
+                  to finish. Please look at the documentation to learn how to \
+                  start it.\n")
         | Some logdir ->
-            let%lwt query = parse_raw_query logdir uri in
-            let%lwt html = Cache.get_html ~conf Backend.cache query logdir in
-            serv_text ~content_type:"text/html" html
+            let query = parse_raw_query logdir uri in
+            let html = Cache.get_html ~conf cache query logdir in
+            Httpcats_utils.respond ~status:`OK reqd (`Html html)
         end
     | ["run"] ->
-        let%lwt html = Cache.get_html_run_list Backend.cache in
-        serv_text ~content_type:"text/html" html
+        let html = Cache.get_html_run_list cache in
+        Httpcats_utils.respond ~status:`OK reqd (`Html html)
     | ["run";logdir] ->
-        begin match%lwt get_logdir logdir with
+        begin match get_logdir logdir with
         | None ->
-            Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
+            Httpcats_utils.respond ~status:`Not_found reqd `Empty
         | Some logdir ->
-            let%lwt query = parse_raw_query logdir uri in
-            let%lwt html = Cache.get_html ~conf Backend.cache query logdir in
-            serv_text ~content_type:"text/html" html
+            let query = parse_raw_query logdir uri in
+            let html = Cache.get_html ~conf cache query logdir in
+            Httpcats_utils.respond ~status:`OK reqd (`Html html)
         end
     | ["diff"] ->
-        let%lwt html = Cache.get_html_diff_list Backend.cache in
-        serv_text ~content_type:"text/html" html
+        let html = Cache.get_html_diff_list cache in
+        Httpcats_utils.respond ~status:`OK reqd (`Html html)
     | ["diff"; range] ->
         let (old_logdir, new_logdir) = match String.split_on_char '.' range with
           | [old_logdir; ""; new_logdir] -> (old_logdir, new_logdir)
           | _ -> assert false
         in
-        begin match%lwt get_logdir old_logdir with
+        begin match get_logdir old_logdir with
         | None ->
-            Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
+            Httpcats_utils.respond ~status:`Not_found reqd `Empty
         | Some old_logdir ->
-            match%lwt get_logdir new_logdir with
+            match get_logdir new_logdir with
             | None ->
-                Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
+                Httpcats_utils.respond ~status:`Not_found reqd `Empty
             | Some new_logdir ->
-                let%lwt html = Cache.get_html_diff ~conf ~old_logdir ~new_logdir Backend.cache in
-                serv_text ~content_type:"text/html" html
+                let html = Cache.get_html_diff ~conf ~old_logdir ~new_logdir cache in
+                Httpcats_utils.respond ~status:`OK reqd (`Html html)
         end
     | ["log"; logdir; comp; state; pkg] ->
         get_log ~logdir ~comp ~state ~pkg
     | ["api"; "v1"; "latest"; "packages"] ->
-        let%lwt json = Cache.get_json_latest_packages Backend.cache in
-        serv_text ~content_type:"application/json" json
+        let json = Cache.get_json_latest_packages cache in
+        Httpcats_utils.respond ~status:`OK reqd (`Json json)
     | _ ->
-        Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
+        Httpcats_utils.respond ~status:`Not_found reqd `Empty
 
-  let callback ~debug ~conf backend conn req body =
-    (* TODO: Try to understand why it wouldn't do anything before when this was ~on_exn *)
-    try%lwt callback ~conf backend conn req body with
-    | e ->
-        if debug then begin
-          let uri = Uri.to_string (Cohttp.Request.uri req) in
-          let e = Printexc.to_string e in
-          prerr_endline ("Exception while serving the page \""^uri^"\" raised: "^e);
-          prerr_endline (Printexc.get_backtrace ());
-        end;
-        Lwt.fail e
-
-  let tcp_server port callback =
-    Cohttp_lwt_unix.Server.create
-      ~mode:(`TCP (`Port port))
-      (Cohttp_lwt_unix.Server.make ~callback ())
+  let tcp_server port handler =
+    Miou.async @@ fun () ->
+    Httpcats.Server.clear ~handler (Unix.ADDR_INET (Unix.inet_addr_loopback, port))
 
   let main ~debug ~workdir =
     Printexc.record_backtrace debug;
-    let%lwt cwd = Lwt_unix.getcwd () in
+    let cwd = Unix.getcwd () in
     let workdir = Server_workdirs.create ~cwd ~workdir in
-    let%lwt () = Server_workdirs.init_base workdir in
+    let () = Server_workdirs.init_base workdir in
     let conf = Server_configfile.from_workdir workdir in
     let port = Server_configfile.port conf in
-    let%lwt (backend, backend_task) = Backend.start ~debug conf workdir in
-    Lwt.join [
-      tcp_server port (callback ~debug ~conf backend);
-      backend_task ();
-    ]
+    let (backend, backend_task, finalizer) = Backend.start ~debug conf workdir in
+    List.iter (function Ok () -> () | Error e -> raise e) @@
+    let res =
+      Miou.await_all [
+        tcp_server port (callback ~conf backend);
+        backend_task ();
+      ]
+    in
+    finalizer ();
+    res
 end

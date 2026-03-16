@@ -1,31 +1,31 @@
 (library
   (name backend)
-  (preprocess (pps lwt_ppx))
   (libraries
     unix
+    miou
+    miou.unix
+    miou.sync
+    httpcats
+    h1
+    h2
     oca_lib
     fmt
     uri
-    lwt
     extunix
-    lwt.unix
     fpath
     astring
     xdg-basedir
-    cohttp
-    cohttp-lwt
-    cohttp-lwt-unix
     docker_hub
-    httpaf
-    http-lwt-client
     containers
     oca_server
     opam-core
     opam-format
     dockerfile
     github
-    github-unix
     github-data
+    lwt
+    lwt.unix
+    cohttp-lwt-unix
     x509
     mirage-crypto-pk
     mirage-crypto-rng.unix))

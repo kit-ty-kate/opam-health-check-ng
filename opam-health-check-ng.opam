@@ -13,11 +13,6 @@ depends: [
   "tyxml" {>= "4.3.0"}
   "extunix" {>= "0.4.1"}
   "httpcats" {>= "0.1.0"}
-  "cohttp"
-  "cohttp-lwt"
-  "cohttp-lwt-unix"
-  "conduit-lwt-unix" {>= "6.2.0"}
-  "http-lwt-client" {>= "0.2.0"}
   "containers" {>= "3.4"}
   "opam-core" {>= "2.5.0"}
   "opam-format" {>= "2.5.0"}
@@ -33,22 +28,18 @@ depends: [
   "dockerfile" {>= "8.2.0"}
   "current_ansi" {>= "0.1"}
   "yojson" {>= "1.6.0"}
+  "lwt" # required for github
   "github"
   "github-unix"
   "github-data"
-  "lwt"
-  "lwt_ppx"
+  "miou" {>= "0.4.0"}
   "uri"
   "docker_hub" {>= "0.2.0"}
   "memtrace"
-  "tls-lwt" {>= "0.16.0"} # activate conduit with TLS for slack webhooks
-  "conf-libev" # Required for lwt to avoid hitting the limits of select(2)
   "conf-pixz" # TODO: Make it a library
   # TODO: Add conf-ugrep
 ]
 conflicts: [
-  "dns-client-lwt" {< "6.1.4"} # Required to fix https://github.com/roburio/http-lwt-client/issues/8
-  "happy-eyeballs-lwt" {< "0.1.3"} # Required to fix https://github.com/roburio/http-lwt-client/issues/8
   "opam-health-check"
 ]
 synopsis: "A toolchain to check for broken opam packages locally"
