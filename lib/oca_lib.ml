@@ -247,6 +247,6 @@ let default_public_url = "http://check.ocamllabs.io"
 let default_admin_port = "9999"
 let default_admin_name = "admin"
 let default_auto_run_interval = 0 (* in hours (0 disables auto-run) *)
-let default_processes = Domain.recommended_domain_count ()
+let default_processes = Nativeint.to_int (OpamStubs.nproc ())
 let default_list_command = "opam list --available --installable --short --all-versions"
 let localhost = "localhost"

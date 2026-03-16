@@ -19,8 +19,8 @@ depends: [
   "conduit-lwt-unix" {>= "6.2.0"}
   "http-lwt-client" {>= "0.2.0"}
   "containers" {>= "3.4"}
-  "opam-core" {>= "2.2"}
-  "opam-format" {>= "2.2"}
+  "opam-core" {>= "2.5.0"}
+  "opam-format" {>= "2.5.0"}
   "mirage-crypto-pk" {>= "2.0.0"}
   "mirage-crypto-rng" {>= "2.0.0"}
   "x509" {>= "1.0.0"}

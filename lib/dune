@@ -11,5 +11,4 @@
     yaml
     fpath
     uri
-    domain_shims
     containers))
