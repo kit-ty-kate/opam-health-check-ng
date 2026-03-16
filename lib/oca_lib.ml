@@ -22,10 +22,10 @@ let char_is_docker_compatible = function
   | _ -> false
 
 let get_files dirname =
-  let%lwt dir = Lwt_unix.opendir (Fpath.to_string dirname) in
+  let* dir = Lwt_unix.opendir (Fpath.to_string dirname) in
   let rec aux files =
     try%lwt
-      let%lwt file = Lwt_unix.readdir dir in
+      let* file = Lwt_unix.readdir dir in
       if Fpath.is_rel_seg file then
         aux files
       else
@@ -33,18 +33,18 @@ let get_files dirname =
     with
     | End_of_file -> Lwt.return files
   in
-  let%lwt files = aux [] in
-  let%lwt () = Lwt_unix.closedir dir in
+  let* files = aux [] in
+  let* () = Lwt_unix.closedir dir in
   Lwt.return files
 
 let rec scan_dir ~full_path dirname =
-  let%lwt files = get_files full_path in
+  let* files = get_files full_path in
   Lwt_list.fold_left_s (fun acc file ->
     let full_path = Fpath.add_seg full_path file in
     let file = Fpath.normalize (Fpath.add_seg dirname file) in
     match%lwt Lwt_unix.stat (Fpath.to_string full_path) with
     | {Unix.st_kind = Unix.S_DIR; _} ->
-        let%lwt files = scan_dir ~full_path file in
+        let* files = scan_dir ~full_path file in
         Lwt.return (Fpath.to_string (Fpath.add_seg file "") :: files @ acc)
     | {Unix.st_kind = Unix.S_REG; _} ->
         Lwt.return (Fpath.to_string file :: acc)
@@ -71,7 +71,7 @@ let read_line_opt fd =
 
 let write fd str =
   let rec aux idx len =
-    let%lwt bytes_written = Lwt_unix.write_string fd str idx len in
+    let* bytes_written = Lwt_unix.write_string fd str idx len in
     match len - bytes_written with
     | 0 -> Lwt.return_unit
     | new_len -> aux (idx + bytes_written) new_len
@@ -82,7 +82,7 @@ let write_line fd str =
   write fd (str^"\n")
 
 let with_file flags mode filename f =
-  let%lwt fd = Lwt_unix.openfile filename flags mode in
+  let* fd = Lwt_unix.openfile filename flags mode in
   Lwt.finalize (fun () -> f fd) (fun () -> Lwt_unix.close fd)
 
 let exec ~timeout ~cidfile ~stdin ~stdout ~stderr cmd =
@@ -106,11 +106,11 @@ let exec ~timeout ~cidfile ~stdin ~stdout ~stderr cmd =
     (* NOTE: e.g. any processes shouldn't take more than 2 hours *)
     let timeout =
       let hours = timeout in
-      let%lwt () = Lwt_unix.sleep (hours *. 60.0 *. 60.0) in
+      let* () = Lwt_unix.sleep (hours *. 60.0 *. 60.0) in
       let cmd = String.concat " " cmd in
       (* TODO: show errors properly in stderr and on the debug console (same for the errors above) *)
       prerr_endline ("Command '"^cmd^"' timed-out ("^string_of_float hours^" hours)");
-      let%lwt () =
+      let* () =
         match cidfile with
         | None -> Lwt.return_unit
         | Some cidfile ->
@@ -132,7 +132,7 @@ let exec ~timeout ~cidfile ~stdin ~stdout ~stderr cmd =
 
 let pread ?cwd ?exit1 ~timeout cmd f =
   Lwt_process.with_process_in ?cwd ~timeout ~stdin:`Close ("", Array.of_list cmd) begin fun proc ->
-    let%lwt res = f proc#stdout in
+    let* res = f proc#stdout in
     match%lwt proc#close with
     | Unix.WEXITED n ->
         begin match n, exit1 with
@@ -191,7 +191,7 @@ let mkdir_p dir =
         Lwt.return_unit
     | x::xs ->
         let dir = Fpath.add_seg base x in
-        let%lwt [@ocaml.warning "-fragile-match"] () =
+        let* [@ocaml.warning "-fragile-match"] () =
           try%lwt
             Lwt_unix.mkdir (Fpath.to_string dir) 0o750
           with
@@ -204,15 +204,15 @@ let mkdir_p dir =
   | dirs -> aux (Fpath.v Filename.current_dir_name) dirs
 
 let rec rm_rf dirname =
-  let%lwt dir = Lwt_unix.opendir (Fpath.to_string dirname) in
+  let* dir = Lwt_unix.opendir (Fpath.to_string dirname) in
   begin
     let rec rm_files () =
       match%lwt Lwt_unix.readdir dir with
       | "." | ".." -> rm_files ()
       | file ->
           let file = dirname // file in
-          let%lwt stat = Lwt_unix.stat (Fpath.to_string file) in
-          let%lwt () =
+          let* stat = Lwt_unix.stat (Fpath.to_string file) in
+          let* () =
             match stat.Unix.st_kind with
             | Unix.S_DIR -> rm_rf file
             | Unix.S_REG -> Lwt_unix.unlink (Fpath.to_string file)
@@ -223,7 +223,7 @@ let rec rm_rf dirname =
     try%lwt rm_files () with End_of_file -> Lwt.return_unit
   end
   [%lwt.finally
-    let%lwt () = Lwt_unix.closedir dir in
+    let* () = Lwt_unix.closedir dir in
     Lwt_unix.rmdir (Fpath.to_string dirname)
   ]
 
@@ -236,7 +236,7 @@ let timer_log timer c msg =
   let start_time = !timer in
   let end_time = Unix.time () in
   let time_span = end_time -. start_time in
-  let%lwt () = write_line c ("Done. "^msg^" took: "^string_of_float time_span^" seconds") in
+  let* () = write_line c ("Done. "^msg^" took: "^string_of_float time_span^" seconds") in
   timer := Unix.time ();
   Lwt.return_unit
 
