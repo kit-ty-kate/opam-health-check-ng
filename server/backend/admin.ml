@@ -26,7 +26,7 @@ let create_userkey workdir username =
 let create_admin_key workdir =
   let username = Oca_lib.default_admin_name in
   let keyfile = get_keyfile workdir username in
-  match%lwt Lwt_unix.file_exists (Fpath.to_string keyfile) with
+  let* lwt = Lwt_unix.file_exists (Fpath.to_string keyfile) in match lwt with
   | true -> Lwt.return_unit
   | false -> create_userkey workdir username
 

@@ -72,7 +72,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
         in
         let* () = Oca_lib.write_line fd base_dockerfile in
         let* () = Lwt_unix.close fd in
-        begin match%lwt proc with
+        begin let* lwt = proc in match lwt with
         | Ok () ->
             let* volumes =
               Lwt_list.fold_left_s (fun acc (volume, path, init) ->
@@ -121,10 +121,10 @@ let exec_out ~fexec ~fout =
 let docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~default c =
   let rec aux ~stdin =
     (* TODO: Use --progress=rawjson whenever it's available *)
-    match%lwt Oca_lib.read_line_opt stdin with
+    let* lwt = Oca_lib.read_line_opt stdin in match lwt with
     | Some "@@@OUTPUT" ->
         let rec aux acc =
-          match%lwt Oca_lib.read_line_opt stdin with
+          let* lwt = Oca_lib.read_line_opt stdin in match lwt with
           | Some "@@@OUTPUT" -> Lwt.return (List.rev acc)
           | Some x -> aux (x :: acc)
           | None -> prerr_endline (fmt "Error: Closing @@@OUTPUT could not be detected for command '%s'" c); Lwt.return []
@@ -155,7 +155,7 @@ let failure_kind conf ~pkg logfile =
   let timeout = Server_configfile.job_timeout conf in
   Lwt_io.with_file ~mode:Lwt_io.Input (Fpath.to_string logfile) begin fun ic ->
     let rec lookup res =
-      match%lwt Lwt_io.read_line_opt ic with
+      let* lwt = Lwt_io.read_line_opt ic in match lwt with
       | Some "+- The following actions failed" -> lookup `Failure
       | Some "+- The following actions were aborted" -> Lwt.return `Partial
       | Some line when String.equal ("[ERROR] No package named "^pkgname^" found.") line ||
@@ -227,7 +227,7 @@ let run_job ~conf ~max_ram_per_job ~pool ~stderr ~base_dockerfile ~switch ~num l
         let* () = Oca_lib.write_line stderr ("["^num^"] succeeded.") in
         Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpgoodlog ~pkg ~switch logdir))
     | Error () ->
-        begin match%lwt failure_kind conf ~pkg logfile with
+        begin let* lwt = failure_kind conf ~pkg logfile in match lwt with
         | `Partial ->
             let* () = Oca_lib.write_line stderr ("["^num^"] finished with a partial failure.") in
             Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmppartiallog ~pkg ~switch logdir))
@@ -553,7 +553,7 @@ let update_docker_image conf =
       Docker_hub.Token.fetch name >>!=
       Docker_hub.Manifests.fetch tag
     in
-    match%lwt manifests with
+    let* lwt = manifests in match lwt with
     | Ok manifests ->
         let elements = Docker_hub.Manifests.elements manifests in
         begin match List.find_opt is_correct_platform elements with
@@ -579,12 +579,12 @@ let update_docker_image conf =
   match String.split_on_char '@' image with
   | [] -> assert false
   | [image] ->
-      begin match%lwt get_latest_image ~image with
+      begin let* lwt = get_latest_image ~image in match lwt with
       | Some image -> Server_configfile.set_platform_image conf image
       | None -> Lwt.fail (Failure (fmt "Could not get digest for image '%s'" image))
       end
   | [image; _old_digest] ->
-      begin match%lwt get_latest_image ~image with
+      begin let* lwt = get_latest_image ~image in match lwt with
       | Some image -> Server_configfile.set_platform_image conf image
       | None -> prerr_endline "Defaulting to old digest"; Lwt.return_unit
       end

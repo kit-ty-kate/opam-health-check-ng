@@ -42,7 +42,7 @@ let rec scan_dir ~full_path dirname =
   Lwt_list.fold_left_s (fun acc file ->
     let full_path = Fpath.add_seg full_path file in
     let file = Fpath.normalize (Fpath.add_seg dirname file) in
-    match%lwt Lwt_unix.stat (Fpath.to_string full_path) with
+    let* lwt = Lwt_unix.stat (Fpath.to_string full_path) in match lwt with
     | {Unix.st_kind = Unix.S_DIR; _} ->
         let* files = scan_dir ~full_path file in
         Lwt.return (Fpath.to_string (Fpath.add_seg file "") :: files @ acc)
@@ -58,7 +58,7 @@ let read_line_opt fd =
   let buffer = Buffer.create 256 in
   let tmp_buf = Bytes.create 1 in
   let rec aux () =
-    match%lwt Lwt_unix.read fd tmp_buf 0 1 with
+    let* lwt = Lwt_unix.read fd tmp_buf 0 1 in match lwt with
     | 0 -> Lwt.return None
     | 1 ->
         begin match Bytes.get tmp_buf 0 with
@@ -91,7 +91,7 @@ let exec ~timeout ~cidfile ~stdin ~stdout ~stderr cmd =
   (* TODO: maybe to factorize with pread below *)
   Lwt_process.with_process_none ~stdin ~stdout ~stderr ("", Array.of_list cmd) (fun proc ->
     let proc' =
-      match%lwt proc#close with
+      let* lwt = proc#close in match lwt with
       | Unix.WEXITED 0 ->
           Lwt.return (Ok ())
       | Unix.WEXITED n ->
@@ -133,7 +133,7 @@ let exec ~timeout ~cidfile ~stdin ~stdout ~stderr cmd =
 let pread ?cwd ?exit1 ~timeout cmd f =
   Lwt_process.with_process_in ?cwd ~timeout ~stdin:`Close ("", Array.of_list cmd) begin fun proc ->
     let* res = f proc#stdout in
-    match%lwt proc#close with
+    let* lwt = proc#close in match lwt with
     | Unix.WEXITED n ->
         begin match n, exit1 with
         | 0, _ ->
@@ -153,7 +153,7 @@ let pread ?cwd ?exit1 ~timeout cmd f =
 
 let read_unordered_lines c =
   let rec aux acc =
-    match%lwt Lwt_io.read_line_opt c with
+    let* lwt = Lwt_io.read_line_opt c in match lwt with
     | None -> Lwt.return acc (* Note: We don't care about the line ordering *)
     | Some line -> aux (line :: acc)
   in
@@ -207,7 +207,7 @@ let rec rm_rf dirname =
   let* dir = Lwt_unix.opendir (Fpath.to_string dirname) in
   begin
     let rec rm_files () =
-      match%lwt Lwt_unix.readdir dir with
+      let* lwt = Lwt_unix.readdir dir in match lwt with
       | "." | ".." -> rm_files ()
       | file ->
           let file = dirname // file in
