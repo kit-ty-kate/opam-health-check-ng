@@ -37,7 +37,6 @@ depends: [
   "github-unix"
   "github-data"
   "lwt"
-  "lwt_ppx"
   "uri"
   "docker_hub" {>= "0.2.0"}
   "memtrace"
