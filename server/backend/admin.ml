@@ -1,3 +1,5 @@
+open Lwt.Syntax
+
 let ( // ) = Fpath.( / )
 
 let with_file_out ~flags file f =

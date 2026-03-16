@@ -1,3 +1,5 @@
+open Lwt.Syntax
+
 open Intf
 
 module Opams_cache = Map.Make (String)

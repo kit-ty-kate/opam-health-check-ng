@@ -1,3 +1,5 @@
+open Lwt.Syntax
+
 let fmt = Printf.sprintf
 let ( // ) = Filename.concat
 let ( >>!= ) = Lwt_result.bind
@@ -77,10 +79,11 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
             let* volumes =
               Lwt_list.fold_left_s (fun acc (volume, path, init) ->
                 let volume = ["--volume";volume^":"^path] in
-                match%lwt
+                let* lwt =
                   Oca_lib.exec ~timeout ~stdin:`Close ~stdout ~stderr:stdout ~cidfile:None
                     (["docker";"run";"--memory";max_ram_per_job;"--rm"]@volume@[tag;"sh";"-c";init])
-                with
+                in
+                match lwt with
                 | Ok () -> Lwt.return (acc @ volume)
                 | Error () -> failwith "volume creation failed"
               ) [] (volumes ~conf)
@@ -112,7 +115,7 @@ let docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout cmd =
 
 let exec_out ~fexec ~fout =
   let stdin, stdout = Lwt_unix.pipe () in
-  let proc = (fexec ~stdout) [%lwt.finally Lwt_unix.close stdout] in
+  let proc = Lwt.finalize (fun () -> fexec ~stdout) (fun () -> Lwt_unix.close stdout) in
   let* res = fout ~stdin in
   let* () = Lwt_unix.close stdin in
   let* r = proc in
@@ -135,11 +138,12 @@ let docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~def
         aux ~stdin
     | None -> Lwt.return_nil
   in
-  match%lwt
+  let* lwt =
     exec_out ~fout:aux ~fexec:(fun ~stdout ->
       docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout (fmt "echo '%f' > /dev/null && echo @@@OUTPUT && %s && echo @@@OUTPUT" (Unix.time ()) c)
     )
-  with
+  in
+  match lwt with
   | (Ok (), r) ->
       Lwt.return r
   | (Error (), _) ->
@@ -218,11 +222,12 @@ let run_job ~conf ~max_ram_per_job ~pool ~stderr ~base_dockerfile ~switch ~num l
     let* () = Oca_lib.write_line stderr ("["^num^"] Checking "^pkg^" on "^Intf.Switch.switch switch^"…") in
     let switch = Intf.Switch.name switch in
     let logfile = Server_workdirs.tmplogfile ~pkg ~switch logdir in
-    match%lwt
+    let* lwt =
       Oca_lib.with_file Unix.[O_WRONLY; O_CREAT; O_TRUNC] 0o640 (Fpath.to_string logfile) (fun stdout ->
         docker_build ~conf ~max_ram_per_job ~base_dockerfile ~stdout (run_script ~conf pkg)
       )
-    with
+    in
+    match lwt with
     | Ok () ->
         let* () = Oca_lib.write_line stderr ("["^num^"] succeeded.") in
         Lwt_unix.rename (Fpath.to_string logfile) (Fpath.to_string (Server_workdirs.tmpgoodlog ~pkg ~switch logdir))
@@ -506,7 +511,7 @@ let trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf =
   Server_configfile.slack_webhooks conf |>
   Lwt_list.iter_s begin fun webhook ->
     let* () = Oca_lib.write_line stderr ("Triggering Slack webhook "^Uri.to_string webhook) in
-    match%lwt
+    let* lwt =
       Http_lwt_client.request
         ~config:(`HTTP_1_1 Httpaf.Config.default) (* TODO: Remove this when https://github.com/roburio/http-lwt-client/issues/7 is fixed *)
         ~meth:`POST
@@ -514,7 +519,8 @@ let trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf =
         ~body
         (Uri.to_string webhook)
         (fun _resp acc x -> Lwt.return (acc ^ x)) ""
-    with
+    in
+    match lwt with
     | Ok ({Http_lwt_client.status = `OK; _}, _body) -> Lwt.return_unit
     | Ok (resp, body) ->
         let resp = Format.sprintf "%a" Http_lwt_client.pp_response resp in
@@ -604,53 +610,56 @@ let run ~debug ~on_finished ~conf cache workdir =
   Lwt.async begin fun () -> Lwt.finalize begin fun () ->
     let start_time = Unix.time () in
     with_stderr ~start_time workdir begin fun ~stderr ->
-      try%lwt
-        let timer = Oca_lib.timer_start () in
-        let* () = update_docker_image conf in
-        let* (opam_repo, opam_repo_commit) = get_commit_hash_default conf in
-        let* extra_repos = get_commit_hash_extra_repos conf in
-        let* () =
-          (* TODO: Add a mutex system to make sure nobody else is using docker
-             at the same time (e.g. another opam-health-check instance) *)
-          match%lwt
-            Oca_lib.exec ~timeout:1.0 ~stdin:`Close ~stdout:stderr ~stderr ~cidfile:None
-              ["docker";"system";"prune";"-af"]
-          with
-          | Ok () -> Lwt.return_unit
-          | Error () -> raise (Failure "docker prune failed")
-        in
-        let switches' = switches in
-        let switches = List.map (fun switch -> (switch, get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch)) switches in
-        begin match switches with
-        | switch::_ ->
-            let* old_logdir = Oca_server.Cache.get_logdirs cache in
-            let compressed = Server_configfile.enable_logs_compression conf in
-            let old_logdir = List.head_opt old_logdir in
-            let new_logdir = Server_workdirs.new_logdir ~compressed ~hash:opam_repo_commit ~start_time workdir in
-            let* () = Server_workdirs.init_base_jobs ~switches:switches' new_logdir in
-            let number_of_jobs = Server_configfile.processes conf in
-            let pool = Lwt_pool.create number_of_jobs (fun () -> Lwt.return_unit) in
-            let max_ram_per_job = get_max_ram_per_job ~number_of_jobs in
-            let* pkgs = Lwt_list.map_s (get_pkgs ~debug ~max_ram_per_job ~stderr ~conf) switches in
-            let pkgs = Pkg_set.of_list (List.concat pkgs) in
-            let* () = Oca_lib.timer_log timer stderr "Initialization" in
-            let (_, jobs) = run_jobs ~conf ~max_ram_per_job ~pool ~stderr new_logdir switches pkgs in
-            let (_, jobs) = get_metadata ~debug ~conf ~max_ram_per_job ~jobs ~pool ~stderr new_logdir switch pkgs in
-            let* () = Lwt.join jobs in
-            let* () = Oca_lib.timer_log timer stderr "Operation" in
-            let* () = Oca_lib.write_line stderr "Finishing up…" in
-            let* () = move_tmpdirs_to_final ~switches:switches' new_logdir workdir in
-            let* () = on_finished workdir in
-            let* () = trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf in
-            Oca_lib.timer_log timer stderr "Clean up"
-        | [] ->
-            Oca_lib.write_line stderr "No switches."
+      Lwt.catch
+        begin fun () ->
+          let timer = Oca_lib.timer_start () in
+          let* () = update_docker_image conf in
+          let* (opam_repo, opam_repo_commit) = get_commit_hash_default conf in
+          let* extra_repos = get_commit_hash_extra_repos conf in
+          let* () =
+            (* TODO: Add a mutex system to make sure nobody else is using docker
+               at the same time (e.g. another opam-health-check instance) *)
+            let* lwt =
+              Oca_lib.exec ~timeout:1.0 ~stdin:`Close ~stdout:stderr ~stderr ~cidfile:None
+                ["docker";"system";"prune";"-af"]
+            in
+            match lwt with
+            | Ok () -> Lwt.return_unit
+            | Error () -> raise (Failure "docker prune failed")
+          in
+          let switches' = switches in
+          let switches = List.map (fun switch -> (switch, get_dockerfile ~conf ~opam_repo ~opam_repo_commit ~extra_repos switch)) switches in
+          begin match switches with
+          | switch::_ ->
+              let* old_logdir = Oca_server.Cache.get_logdirs cache in
+              let compressed = Server_configfile.enable_logs_compression conf in
+              let old_logdir = List.head_opt old_logdir in
+              let new_logdir = Server_workdirs.new_logdir ~compressed ~hash:opam_repo_commit ~start_time workdir in
+              let* () = Server_workdirs.init_base_jobs ~switches:switches' new_logdir in
+              let number_of_jobs = Server_configfile.processes conf in
+              let pool = Lwt_pool.create number_of_jobs (fun () -> Lwt.return_unit) in
+              let max_ram_per_job = get_max_ram_per_job ~number_of_jobs in
+              let* pkgs = Lwt_list.map_s (get_pkgs ~debug ~max_ram_per_job ~stderr ~conf) switches in
+              let pkgs = Pkg_set.of_list (List.concat pkgs) in
+              let* () = Oca_lib.timer_log timer stderr "Initialization" in
+              let (_, jobs) = run_jobs ~conf ~max_ram_per_job ~pool ~stderr new_logdir switches pkgs in
+              let (_, jobs) = get_metadata ~debug ~conf ~max_ram_per_job ~jobs ~pool ~stderr new_logdir switch pkgs in
+              let* () = Lwt.join jobs in
+              let* () = Oca_lib.timer_log timer stderr "Operation" in
+              let* () = Oca_lib.write_line stderr "Finishing up…" in
+              let* () = move_tmpdirs_to_final ~switches:switches' new_logdir workdir in
+              let* () = on_finished workdir in
+              let* () = trigger_slack_webhooks ~stderr ~old_logdir ~new_logdir conf in
+              Oca_lib.timer_log timer stderr "Clean up"
+          | [] ->
+              Oca_lib.write_line stderr "No switches."
+          end
         end
-      with
-      | exc ->
+        begin fun exc ->
           let* () = Oca_lib.write_line stderr ("Exception: "^Printexc.to_string exc^".") in
           let* () = Oca_lib.write stderr (Printexc.get_backtrace ()) in
           Lwt.return (prerr_endline "The current run failed unexpectedly. Please check the latest log using: opam-health-check log")
+        end
     end
   end (fun () -> run_locked := false; Lwt.return_unit) end;
   Lwt.return_unit

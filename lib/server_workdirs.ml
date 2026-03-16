@@ -1,3 +1,5 @@
+open Lwt.Syntax
+
 type t = Fpath.t
 
 let (/) path file =

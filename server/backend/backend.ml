@@ -1,3 +1,5 @@
+open Lwt.Syntax
+
 type t = Server_workdirs.t
 
 let cache = Oca_server.Cache.create ()
@@ -111,22 +113,25 @@ let cache_clear_and_init workdir =
 let run_action_loop ~conf ~run_trigger f =
   let rec loop () =
     let* () =
-      try%lwt
-        let regular_run =
-          let run_interval = Server_configfile.auto_run_interval conf * 60 * 60 in
-          if run_interval > 0 then
-            let* () = Lwt_unix.sleep (float_of_int run_interval) in
-            Check.wait_current_run_to_finish ()
-          else
-            fst (Lwt.wait ())
-        in
-        let manual_run = Lwt_mvar.take run_trigger in
-        let* () = Lwt.pick [regular_run; manual_run] in
-        f ()
-      with e ->
-        let msg = Printexc.to_string e in
-        let* () = Lwt_io.write_line Lwt_io.stderr ("Exception raised in action loop: "^msg) in
-        Lwt_io.write_line Lwt_io.stderr (Printexc.get_backtrace ())
+      Lwt.catch
+        begin fun () ->
+          let regular_run =
+            let run_interval = Server_configfile.auto_run_interval conf * 60 * 60 in
+            if run_interval > 0 then
+              let* () = Lwt_unix.sleep (float_of_int run_interval) in
+              Check.wait_current_run_to_finish ()
+            else
+              fst (Lwt.wait ())
+          in
+          let manual_run = Lwt_mvar.take run_trigger in
+          let* () = Lwt.pick [regular_run; manual_run] in
+          f ()
+        end
+        begin fun e ->
+          let msg = Printexc.to_string e in
+          let* () = Lwt_io.write_line Lwt_io.stderr ("Exception raised in action loop: "^msg) in
+          Lwt_io.write_line Lwt_io.stderr (Printexc.get_backtrace ())
+        end
     in
     loop ()
   in

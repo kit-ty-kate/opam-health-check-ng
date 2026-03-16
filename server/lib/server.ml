@@ -1,3 +1,5 @@
+open Lwt.Syntax
+
 module Make (Backend : Backend_intf.S) = struct
   let serv_text ~content_type body =
     let headers = Cohttp.Header.init_with "Content-Type" content_type in
@@ -154,8 +156,11 @@ module Make (Backend : Backend_intf.S) = struct
 
   let callback ~debug ~conf backend conn req body =
     (* TODO: Try to understand why it wouldn't do anything before when this was ~on_exn *)
-    try%lwt callback ~conf backend conn req body with
-    | e ->
+    Lwt.catch
+      begin fun () ->
+        callback ~conf backend conn req body
+      end
+      begin fun e ->
         if debug then begin
           let uri = Uri.to_string (Cohttp.Request.uri req) in
           let e = Printexc.to_string e in
@@ -163,6 +168,7 @@ module Make (Backend : Backend_intf.S) = struct
           prerr_endline (Printexc.get_backtrace ());
         end;
         Lwt.fail e
+      end
 
   let tcp_server port callback =
     Cohttp_lwt_unix.Server.create

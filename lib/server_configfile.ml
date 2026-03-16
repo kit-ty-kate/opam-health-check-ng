@@ -1,3 +1,5 @@
+open Lwt.Syntax
+
 type t = {
   yamlfile : Fpath.t;
   mutable name : string option;

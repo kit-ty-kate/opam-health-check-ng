@@ -1,3 +1,5 @@
+open Lwt.Syntax
+
 let (//) = Fpath.(/)
 
 let with_atomic_file_out ~ext file f =
@@ -24,14 +26,18 @@ let char_is_docker_compatible = function
 let get_files dirname =
   let* dir = Lwt_unix.opendir (Fpath.to_string dirname) in
   let rec aux files =
-    try%lwt
-      let* file = Lwt_unix.readdir dir in
-      if Fpath.is_rel_seg file then
-        aux files
-      else
-        aux (file :: files)
-    with
-    | End_of_file -> Lwt.return files
+    Lwt.catch
+      begin fun () ->
+        let* file = Lwt_unix.readdir dir in
+        if Fpath.is_rel_seg file then
+          aux files
+        else
+          aux (file :: files)
+      end
+      begin function
+      | End_of_file -> Lwt.return files
+      | e -> raise e
+      end
   in
   let* files = aux [] in
   let* () = Lwt_unix.closedir dir in
@@ -115,10 +121,11 @@ let exec ~timeout ~cidfile ~stdin ~stdout ~stderr cmd =
         | None -> Lwt.return_unit
         | Some cidfile ->
             let container_id = IO.with_in cidfile (IO.read_all ~size:128) in
-            match%lwt
+            let* lwt =
               Lwt_process.exec ~stdin:`Close ~stdout:stderr ~stderr
                 ("", Array.of_list ["docker";"kill";"-s";"KILL";container_id])
-            with
+            in
+            match lwt with
             | Unix.WEXITED 0 -> Lwt.return ()
             | Unix.WEXITED _ | Unix.WSIGNALED _ | Unix.WSTOPPED _ ->
                 prerr_endline "docker kill failed";
@@ -191,11 +198,15 @@ let mkdir_p dir =
         Lwt.return_unit
     | x::xs ->
         let dir = Fpath.add_seg base x in
-        let* [@ocaml.warning "-fragile-match"] () =
-          try%lwt
-            Lwt_unix.mkdir (Fpath.to_string dir) 0o750
-          with
-          | Unix.Unix_error (Unix.EEXIST, _, _) -> Lwt.return_unit
+        let* () =
+          Lwt.catch
+            begin fun () ->
+              Lwt_unix.mkdir (Fpath.to_string dir) 0o750
+            end
+            begin function [@ocaml.warning "-fragile-match"]
+            | Unix.Unix_error (Unix.EEXIST, _, _) -> Lwt.return_unit
+            | e -> raise e
+            end
         in
         aux dir xs
   in
@@ -205,27 +216,28 @@ let mkdir_p dir =
 
 let rec rm_rf dirname =
   let* dir = Lwt_unix.opendir (Fpath.to_string dirname) in
-  begin
-    let rec rm_files () =
-      let* lwt = Lwt_unix.readdir dir in match lwt with
-      | "." | ".." -> rm_files ()
-      | file ->
-          let file = dirname // file in
-          let* stat = Lwt_unix.stat (Fpath.to_string file) in
-          let* () =
-            match stat.Unix.st_kind with
-            | Unix.S_DIR -> rm_rf file
-            | Unix.S_REG -> Lwt_unix.unlink (Fpath.to_string file)
-            | Unix.(S_CHR | S_BLK | S_LNK | S_FIFO | S_SOCK) -> assert false
-          in
-          rm_files ()
-    in
-    try%lwt rm_files () with End_of_file -> Lwt.return_unit
-  end
-  [%lwt.finally
-    let* () = Lwt_unix.closedir dir in
-    Lwt_unix.rmdir (Fpath.to_string dirname)
-  ]
+  Lwt.finalize
+    begin fun () ->
+      let rec rm_files () =
+        let* lwt = Lwt_unix.readdir dir in match lwt with
+        | "." | ".." -> rm_files ()
+        | file ->
+            let file = dirname // file in
+            let* stat = Lwt_unix.stat (Fpath.to_string file) in
+            let* () =
+              match stat.Unix.st_kind with
+              | Unix.S_DIR -> rm_rf file
+              | Unix.S_REG -> Lwt_unix.unlink (Fpath.to_string file)
+              | Unix.(S_CHR | S_BLK | S_LNK | S_FIFO | S_SOCK) -> assert false
+            in
+            rm_files ()
+      in
+      Lwt.catch (fun () -> rm_files ()) (function End_of_file -> Lwt.return_unit | e -> raise e)
+    end
+    begin fun () ->
+      let* () = Lwt_unix.closedir dir in
+      Lwt_unix.rmdir (Fpath.to_string dirname)
+    end
 
 type timer = float ref
 
