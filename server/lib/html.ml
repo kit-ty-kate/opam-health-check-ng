@@ -191,7 +191,7 @@ let common_header =
     a ~a:[a_href "/"] [
       img
         ~a:[a_style "border-radius: 8px; width: 50px; vertical-align: middle;"]
-        ~src:"http://ocamllabs.io/assets/img/origami-camel.png"
+        ~src:"/assets/origami-camel.png"
         ~alt:"OCamllabs icon" ()
         (* TODO: Integrate the image in each instances *)
     ];

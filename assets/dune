@@ -1,0 +1,3 @@
+(executable
+ (name crunch)
+ (libraries containers))

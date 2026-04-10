@@ -175,6 +175,8 @@ module Make (Backend : Backend_intf.S) = struct
         in
         let* json = Cache.get_json_latest_packages api_version Backend.cache in
         serv_text ~content_type:"application/json" json
+    | ["assets"; "origami-camel.png"] ->
+        serv_text ~content_type:"image/png" Assets.origami_camel_png
     | _ ->
         Cohttp_lwt_unix.Server.respond ~body:`Empty ~status:`Not_found ()
 
