@@ -6,6 +6,7 @@ type query = {
   show_diff_only : bool;
   show_latest_only : bool;
   sort_by_revdeps : bool;
+  packages : string * Re.re option;
   maintainers : string * Re.re option;
   logsearch : string * (Re.re * Intf.Compiler.t) option;
 }

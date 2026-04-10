@@ -166,6 +166,13 @@ let must_show_package ~logsearch query ~is_latest pkg =
       true
   end >>&& begin fun () ->
     Lwt.return @@
+    match snd query.Html.packages with
+    | Some re ->
+        Re.execp re (Pkg.name pkg) ||
+        Re.execp re (Pkg.full_name pkg)
+    | None -> true
+  end >>&& begin fun () ->
+    Lwt.return @@
     match snd query.Html.maintainers with
     | Some re -> List.exists (Re.execp re) opam.OpamFile.OPAM.maintainer
     | None -> true

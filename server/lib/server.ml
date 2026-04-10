@@ -16,6 +16,20 @@ module Make (Backend : Backend_intf.S) = struct
     end [] |>
     List.rev
 
+  let comma_sep_glob_to_re str =
+    let glob_to_re glob =
+      let rec aux = function
+        | [] -> [Re.eol]
+        | [""] -> aux []
+        | [x] -> Re.str x :: aux []
+        | ""::xs -> Re.rep Re.any :: aux xs
+        | x::xs -> Re.str x :: Re.rep Re.any :: aux xs
+      in
+      Re.seq (Re.bol :: aux (String.split_on_char '*' glob))
+    in
+    Re.compile
+      (Re.alt (List.map glob_to_re (String.split_on_char ',' str)))
+
   let parse_raw_query logdir uri =
     let checkbox_default def = if List.is_empty (Uri.query uri) then def else false in
     let compilers = get_query_param_list uri "comp" in
@@ -29,6 +43,9 @@ module Make (Backend : Backend_intf.S) = struct
     let show_latest_only = if String.is_empty show_latest_only then checkbox_default true else bool_of_string show_latest_only in
     let sort_by_revdeps = option_to_string (Uri.get_query_param uri "sort-by-revdeps") in
     let sort_by_revdeps = if String.is_empty sort_by_revdeps then checkbox_default false else bool_of_string sort_by_revdeps in
+    let packages = option_to_string (Uri.get_query_param uri "packages") in
+    let packages = if String.is_empty packages then None else Some packages in
+    let packages = (option_to_string packages, Option.map comma_sep_glob_to_re packages) in
     let maintainers = option_to_string (Uri.get_query_param uri "maintainers") in
     let maintainers = if String.is_empty maintainers then None else Some maintainers in
     let maintainers = (option_to_string maintainers, Option.map (Re.Posix.compile_pat ~opts:[`ICase]) maintainers) in
@@ -62,6 +79,7 @@ module Make (Backend : Backend_intf.S) = struct
       Html.show_diff_only;
       Html.show_latest_only;
       Html.sort_by_revdeps;
+      Html.packages;
       Html.maintainers;
       Html.logsearch;
     }
