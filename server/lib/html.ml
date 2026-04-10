@@ -18,6 +18,7 @@ type query = {
   show_diff_only : bool;
   show_latest_only : bool;
   sort_by_revdeps : bool;
+  packages : string * Re.re option;
   maintainers : string * Re.re option;
   logsearch : string * (Re.re * Compiler.t) option; (* TODO: Remove Re.re? (unused?) *)
 }
@@ -331,6 +332,8 @@ let get_html ~logdir ~conf query pkgs =
   let show_latest_only = input ~a:(a_input_type `Checkbox::a_name "show-latest-only"::a_value "true"::if query.show_latest_only then [a_checked ()] else []) () in
   let sort_by_revdeps_text = [txt "Sort by number of revdeps:"] in
   let sort_by_revdeps = input ~a:(a_input_type `Checkbox::a_name "sort-by-revdeps"::a_value "true"::if query.sort_by_revdeps then [a_checked ()] else []) () in
+  let packages_text = [txt "Only show packages whose name match [comma-separated glob]:"] in
+  let packages = input ~a:[a_input_type `Text; a_name "packages"; a_value (fst query.packages)] () in
   let maintainers_text = [txt "Only show packages maintained by [posix regexp]:"] in
   let maintainers = input ~a:[a_input_type `Text; a_name "maintainers"; a_value (fst query.maintainers)] () in
   let logsearch_text = [txt "Only show packages whose log matches [posix regexp]:"] in
@@ -350,6 +353,7 @@ let get_html ~logdir ~conf query pkgs =
     (show_diff_only_text, [show_diff_only]);
     (show_latest_only_text, [show_latest_only]);
     (sort_by_revdeps_text, [sort_by_revdeps]);
+    (packages_text, [packages]);
     (maintainers_text, [maintainers]);
     (logsearch_text, [logsearch; logsearch_comp]);
     ([], [submit_form]);
