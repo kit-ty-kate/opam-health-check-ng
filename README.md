@@ -105,3 +105,24 @@ ocaml-switches:
 - "5.0+more_volatile": ocaml-variants.5.0.0+more_volatile
 slack-webhooks: []
 ```
+
+## REST API
+
+opam-health-check-ng ships with a REST API that anyone can query:
+- `/api/v1/latest/packages` will return a JSON array of every package tested in the latest run.
+  The expected result looks like:
+  ```json
+  [
+    {
+      "name": "<pkgname>.<version>",
+      "statuses": [
+        {
+          "compiler": "<compiler name>",
+          "status": "<good|partial|bad|not-available|internal-failure>"
+        },
+        ...
+      ]
+    },
+    ...
+  ]
+  ```
