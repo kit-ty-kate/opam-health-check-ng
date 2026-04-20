@@ -150,12 +150,12 @@ let pread ?cwd ?exit1 ~timeout cmd f =
         | _, _ ->
             let cmd = String.concat " " cmd in
             prerr_endline ("Command '"^cmd^"' failed (exit status: "^string_of_int n^")");
-            Lwt.fail (Failure "process failure")
+            raise (Failure "process failure")
         end
     | Unix.WSIGNALED n | Unix.WSTOPPED n ->
         let cmd = String.concat " " cmd in
         prerr_endline ("Command '"^cmd^"' killed by a signal (n°"^string_of_int n^")");
-        Lwt.fail (Failure "process failure")
+        raise (Failure "process failure")
   end
 
 let read_unordered_lines c =

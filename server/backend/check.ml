@@ -148,7 +148,7 @@ let docker_build_str ~debug ~conf ~max_ram_per_job ~base_dockerfile ~stderr ~def
       Lwt.return r
   | (Error (), _) ->
       match default with
-      | None -> Lwt.fail (Failure ("Failure in docker: "^c)) (* TODO: Replace this with "send message to debug slack webhook" *)
+      | None -> raise (Failure ("Failure in docker: "^c)) (* TODO: Replace this with "send message to debug slack webhook" *)
       | Some v -> Lwt.return v
 
 let failure_kind conf ~pkg logfile =
@@ -587,14 +587,14 @@ let update_docker_image conf =
   | [image] ->
       begin let* lwt = get_latest_image ~image in match lwt with
       | Some image -> Server_configfile.set_platform_image conf image
-      | None -> Lwt.fail (Failure (fmt "Could not get digest for image '%s'" image))
+      | None -> raise (Failure (fmt "Could not get digest for image '%s'" image))
       end
   | [image; _old_digest] ->
       begin let* lwt = get_latest_image ~image in match lwt with
       | Some image -> Server_configfile.set_platform_image conf image
       | None -> prerr_endline "Defaulting to old digest"; Lwt.return_unit
       end
-  | _ -> Lwt.fail (Failure (fmt "Image name '%s' is not valid" image))
+  | _ -> raise (Failure (fmt "Image name '%s' is not valid" image))
 
 let get_max_ram_per_job ~number_of_jobs =
   (* in Megabytes *)

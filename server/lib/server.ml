@@ -191,7 +191,7 @@ module Make (Backend : Backend_intf.S) = struct
           prerr_endline ("Exception while serving the page \""^uri^"\" raised: "^e);
           prerr_endline (Printexc.get_backtrace ());
         end;
-        Lwt.fail e
+        raise e
       end
 
   let tcp_server port callback =
