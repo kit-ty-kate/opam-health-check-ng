@@ -109,7 +109,7 @@ slack-webhooks: []
 ## REST API
 
 opam-health-check-ng ships with a REST API that anyone can query:
-- `/api/v1/latest/packages` will return a JSON array of every packages tested in the latest run.
+- `/api/v1/latest/packages` will return a JSON array of every package tested in the latest run.
   The expected result looks like:
   ```json
   [
