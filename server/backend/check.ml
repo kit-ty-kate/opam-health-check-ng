@@ -395,7 +395,8 @@ let get_pkgs ~debug ~conf ~max_ram_per_job ~stderr (switch, base_dockerfile) =
     | "ocaml-options-only-no-flat-float-array"
     | "ocaml-options-only-tsan"
     | "ocaml-options-vanilla"
-    | "ocaml-variants" -> false
+    | "ocaml-variants"
+    | "relocatable" -> false
     | _ -> true
   end pkgs in
   let nelts = string_of_int (List.length pkgs) in
