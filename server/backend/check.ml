@@ -352,6 +352,7 @@ let get_pkgs ~debug ~conf ~max_ram_per_job ~stderr (switch, base_dockerfile) =
     | "base-threads"
     | "base-unix"
     | "base-unsafe-string"
+    | "compiler-cloning"
     | "dkml-base-compiler"
     | "host-arch-arm32"
     | "host-arch-arm64"
@@ -392,6 +393,7 @@ let get_pkgs ~debug ~conf ~max_ram_per_job ~stderr (switch, base_dockerfile) =
     | "ocaml-options-only-nnp"
     | "ocaml-options-only-nnpchecker"
     | "ocaml-options-only-no-flat-float-array"
+    | "ocaml-options-only-tsan"
     | "ocaml-options-vanilla"
     | "ocaml-variants" -> false
     | _ -> true
