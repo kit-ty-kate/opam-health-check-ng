@@ -21,4 +21,5 @@
 
 (rule
  (target assets.ml)
- (action (with-stdout-to %{target} (run ../../assets/crunch.exe ../../assets))))
+ (deps (source_tree ../../assets))
+ (action (with-stdout-to %{target} (chdir ../../assets (run ./crunch.exe .)))))
