@@ -86,7 +86,7 @@ let exec ~timeout ~cidfile ~stdin ~stdout ~stderr cmd =
   Utils.Miou_process.with_process_none ~stdin ~stdout ~stderr ("", Array.of_list cmd) (fun proc ->
     let proc' =
       Miou.async @@ fun () ->
-      match Miou.await_exn proc#close with
+      match proc#close with
       | Unix.WEXITED 0 ->
           (Ok ())
       | Unix.WEXITED n ->
@@ -130,7 +130,7 @@ let exec ~timeout ~cidfile ~stdin ~stdout ~stderr cmd =
 let pread ?cwd ?exit1 ~timeout cmd f =
   Utils.Miou_process.with_process_in ?cwd ~timeout ~stdin:`Close ("", Array.of_list cmd) begin fun proc ->
     let res = f proc#stdout in
-    match Miou.await_exn proc#close with
+    match proc#close with
     | Unix.WEXITED n ->
         begin match n, exit1 with
         | 0, _ ->

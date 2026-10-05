@@ -38,9 +38,11 @@ let logdirs workdir =
         begin match String.split_on_char '.' hash with
         | [hash] ->
             let files = Utils.Miou_pool.use pool (fun () -> Oca_lib.scan_dir logdir) in
+            let files = Miou.await_exn files in
             (Logdir (Uncompressed, float_of_string time, hash, workdir, files))
         | [hash; "txz"] ->
             let files = Utils.Miou_pool.use pool (fun () -> Oca_lib.scan_tpxz_archive logdir) in
+            let files = Miou.await_exn files in
             (Logdir (Compressed, float_of_string time, hash, workdir, files))
         | _ -> assert false
         end
