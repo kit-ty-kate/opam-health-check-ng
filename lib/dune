@@ -3,8 +3,9 @@
   (wrapped false)
   (libraries
     unix
-    lwt
-    lwt.unix
+    miou
+    miou.unix
+    cattery
     opam-core
     opam-format
     yaml
