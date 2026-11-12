@@ -1,3 +1,6 @@
+let () = Runtime_events.start ()
+let () = Miou.Trace.set_reporter Miou_runtime_events.reporter
+
 let with_file flags mode filename f =
   let fd = Unix.openfile filename flags mode in
   let fd = try Miou_unix.of_file_descr fd with e -> Unix.close fd; raise e in

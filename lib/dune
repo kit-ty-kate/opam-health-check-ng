@@ -5,6 +5,8 @@
     unix
     miou
     miou.unix
+    miou.runtime_events
+    runtime_events
     cattery
     opam-core
     opam-format
