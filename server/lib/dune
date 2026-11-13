@@ -3,13 +3,15 @@
   (modules_without_implementation backend_intf)
   (libraries
     unix
-    lwt
-    lwt.unix
+    miou
+    miou.unix
+    miou.sync
+    bigstringaf
+    h1
+    h2
+    httpcats
     tyxml
     tyxml.functor
-    cohttp
-    cohttp-lwt
-    cohttp-lwt-unix
     opam-format
     containers
     fpath

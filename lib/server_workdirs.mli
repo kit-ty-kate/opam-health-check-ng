@@ -8,7 +8,7 @@ val keyfile : username:string -> t -> Fpath.t
 type logdir
 
 val new_logdir : compressed:bool -> hash:string -> start_time:float -> t -> logdir
-val logdirs : t -> logdir list Lwt.t
+val logdirs : t -> logdir list
 
 val logdir_equal : logdir -> logdir -> bool
 val get_logdir_name : logdir -> string
@@ -20,10 +20,10 @@ val partialfiles : switch:Intf.Compiler.t -> logdir -> string list
 val badfiles : switch:Intf.Compiler.t -> logdir -> string list
 val notavailablefiles : switch:Intf.Compiler.t -> logdir -> string list
 val internalfailurefiles : switch:Intf.Compiler.t -> logdir -> string list
-val logdir_get_content : comp:Intf.Compiler.t -> state:Intf.State.t -> pkg:string -> logdir -> string Lwt.t
+val logdir_get_content : comp:Intf.Compiler.t -> state:Intf.State.t -> pkg:string -> logdir -> string
 val logdir_get_compilers : logdir -> Intf.Compiler.t list
-val logdir_move : switches:Intf.Compiler.t list -> logdir -> unit Lwt.t
-val logdir_search : switch:string -> regexp:string -> logdir -> string list Lwt.t
+val logdir_move : switches:Intf.Compiler.t list -> logdir -> unit
+val logdir_search : switch:string -> regexp:string -> logdir -> string list
 
 val ilogdir : t -> Fpath.t
 val new_ilogfile : start_time:float -> t -> Fpath.t
@@ -53,5 +53,5 @@ val tmprevdepsfile : pkg:string -> logdir -> Fpath.t
 
 val configfile : t -> Fpath.t
 
-val init_base : t -> unit Lwt.t
-val init_base_jobs : switches:Intf.Switch.t list -> logdir -> unit Lwt.t
+val init_base : t -> unit
+val init_base_jobs : switches:Intf.Switch.t list -> logdir -> unit
